@@ -1,6 +1,7 @@
 # gdt-coach
 
-> Domain model only so far — no parsing and no rule engine yet.
+> Domain model and rule engine infrastructure only so far — no GD&T
+> rules and no parsing yet.
 
 ## Requirements
 
@@ -37,6 +38,32 @@ drawing = Drawing(
 See [ARCHITECTURE.md](ARCHITECTURE.md#domain-model) for what each model
 represents.
 
+The rule engine can run rules against a drawing, but no concrete GD&T
+rule ships yet — this only demonstrates the wiring:
+
+```python
+from gdt_coach.rules import Rule, RuleCategory, RuleEngine, Severity, Standard, default_registry
+
+
+@default_registry.register
+class ExampleRule(Rule):
+    id = "example-rule"
+    title = "Example rule"
+    severity = Severity.INFO
+    standard = Standard.GENERAL
+    category = RuleCategory.GENERAL
+    explanation = "Placeholder rule demonstrating registration."
+
+    def check(self, drawing):
+        return []
+
+
+findings = RuleEngine().run(drawing)
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#rule-engine) for how the
+registry and engine fit together.
+
 ## Development
 
 ```bash
@@ -51,7 +78,8 @@ pytest                # test (with coverage)
 ```
 gdt-coach/
 ├── src/gdt_coach/     # importable package (src layout)
-│   └── models/        # GD&T domain models (Pydantic)
+│   ├── models/        # GD&T domain models (Pydantic)
+│   └── rules/         # rule engine (base class, registry, engine)
 ├── tests/             # pytest test suite
 ├── docs/              # project documentation
 ├── scripts/           # developer/maintenance scripts

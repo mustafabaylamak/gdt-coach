@@ -22,10 +22,21 @@
       rule logic, no parsing, no rule engine)
 - [x] Comprehensive unit tests (72 tests, 100% coverage on `models/`)
 
+## Sprint 2 — Rule engine infrastructure (done)
+
+- [x] `Rule` abstract base class (id, title, severity, standard,
+      category, explanation, `check()`)
+- [x] `Finding` model, `Severity`/`RuleCategory`/`Standard` enums
+- [x] `RuleRegistry` (register/unregister/get/filter, duplicate-id and
+      missing-metadata validation) and `RuleEngine` (runs registered
+      rules against a `Drawing`, with category/standard filtering)
+- [x] Comprehensive unit tests (116 tests total, 100% coverage on
+      `rules/`); still no concrete GD&T rules and no YAML parsing
+
 ## Phase 2 — First business logic
 
 - [ ] Parsing: turn a source drawing into `gdt_coach.models` objects
-- [ ] Rule engine: GD&T interpretation rules over an assembled `Drawing`
+- [ ] First concrete GD&T rules registered against the Sprint 2 engine
 
 ## Later
 
