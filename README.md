@@ -1,7 +1,7 @@
 # gdt-coach
 
 > Domain model, rule engine infrastructure, a first set of five GD&T
-> rules, and a YAML loader so far — no CLI wiring yet.
+> rules, a YAML loader, and a CLI `check` command so far.
 
 ## Requirements
 
@@ -21,6 +21,38 @@ pre-commit install
 ```bash
 gdt-coach --version
 ```
+
+### `gdt-coach check`
+
+Check a YAML drawing against the GD&T rule engine:
+
+```bash
+gdt-coach check examples/invalid_flatness_with_datum.yaml
+```
+
+```
+Checked examples/invalid_flatness_with_datum.yaml -- drawing 'dwg-002' ('Cover Plate')
+Rules run: 5
+
+[ERROR] flatness-no-datum-references: Flatness cannot reference datums
+  flatness feature control frame 'fcf-1' references datum(s) ['A'], but flatness must not reference any datum
+  location: feature=feat-surface-1 fcf=fcf-1
+
+1 finding(s): 1 error
+```
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | The drawing loaded and no rule reported a finding. |
+| `1` | The drawing loaded but one or more rules reported a finding. |
+| `2` | The YAML couldn't be loaded: malformed YAML, a missing file, or a document that fails `Drawing` validation. |
+
+`check` always runs the five rules from
+[ARCHITECTURE.md#concrete-rules](ARCHITECTURE.md#concrete-rules); there
+is no flag yet to run a subset, and report output is plain text only
+(no Markdown/HTML/JSON yet).
 
 The GD&T domain model is available as a library:
 

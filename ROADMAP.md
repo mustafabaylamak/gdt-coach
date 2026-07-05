@@ -61,12 +61,25 @@
       `ingest/`), including an end-to-end YAML -> Drawing -> RuleEngine
       test per example; `RuleEngine` unchanged, no CLI wiring
 
+## Sprint 5 — CLI check command (done)
+
+- [x] `gdt-coach check <path>`: loads a YAML drawing via
+      `gdt_coach.ingest`, runs the five Sprint 3 rules through the
+      unchanged `RuleEngine`, and prints a plain-text report (rule id,
+      severity, title, message, and location when available)
+- [x] Exit codes: `0` no findings, `1` one or more findings, `2` YAML
+      load/validation failure (malformed YAML, missing file, or a
+      `Drawing` that fails validation)
+- [x] Comprehensive tests (169 tests total): exit codes for all three
+      example files plus malformed/missing YAML, output-content checks,
+      and direct unit tests of the report formatting helpers
+- [x] `RuleEngine` unchanged; no new GD&T rules; no Markdown/HTML report
+
 ## Phase 2 — First business logic
 
 - [ ] More GD&T rules (orientation, form beyond straightness/flatness,
       runout, profile, tolerance-value sanity checks, ...)
-- [ ] CLI command to load a YAML drawing and run the rule engine
-      against it
+- [ ] Markdown/HTML/JSON report output for `gdt-coach check`
 
 ## Later
 

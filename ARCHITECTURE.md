@@ -6,10 +6,12 @@ Sprint 1 added the domain model layer (`gdt_coach.models`). Sprint 2
 added the rule engine *infrastructure* (`gdt_coach.rules`): a rule base
 class, a registry, an engine, and the findings/severity/category/
 standard vocabulary. Sprint 3 added the first five concrete GD&T rules
-under `gdt_coach.rules.checks`. Sprint 4 adds a YAML ingest layer
-(`gdt_coach.ingest`) that loads a `Drawing` from a YAML file. There is
-still no CLI wiring to actually run the engine, and no other input
-format (PDF/DXF/CAD) is supported.
+under `gdt_coach.rules.checks`. Sprint 4 added a YAML ingest layer
+(`gdt_coach.ingest`) that loads a `Drawing` from a YAML file. Sprint 5
+wires all of this into the CLI: `gdt-coach check <path>` loads a YAML
+drawing, runs the rule engine, and prints a report. No other input
+format (PDF/DXF/CAD) is supported, and there is no Markdown/HTML
+report output yet.
 
 ## Layout
 
@@ -185,9 +187,9 @@ the same lowercase string values as each enum's `.value` (e.g.
 than being silently ignored. See `examples/*.yaml` for complete
 drawings and the README for a field-by-field walkthrough.
 
-**Deliberately not done here**: running the rule engine (the loader
-only builds a `Drawing`; nothing calls `RuleEngine`), CLI wiring, and
-any non-YAML input format (PDF/DXF/CAD).
+**Deliberately not done here**: any non-YAML input format (PDF/DXF/CAD).
+The ingest layer itself still only builds a `Drawing` and never calls
+`RuleEngine` — that wiring lives in the CLI (see "Entry points" below).
 
 ## Tooling
 
@@ -206,19 +208,43 @@ any non-YAML input format (PDF/DXF/CAD).
 
 ## Entry points
 
-- `gdt_coach.cli:main` is registered as the `gdt-coach` console script.
-  It currently only supports `--version` and `--help`.
+`gdt_coach.cli:main` is registered as the `gdt-coach` console script,
+built with `argparse` subparsers.
+
+- `gdt-coach --version` / `gdt-coach --help` — unchanged since Sprint 0.
+- `gdt-coach check <path>` — the only place in the codebase that wires
+  the ingest layer to the rule engine:
+  1. `gdt_coach.ingest.load_drawing_from_yaml_file(path)` loads the
+     `Drawing`. `IngestError` or `OSError` (e.g. a missing file) is
+     caught, printed to stderr, and maps to **exit code 2**.
+  2. A `RuleRegistry` is built and populated with the five
+     `gdt_coach.rules.checks` classes *inside the CLI module*, not via
+     the shared `default_registry` — `check` doesn't depend on what
+     else in the process may have imported or cleared the global
+     registry. `RuleEngine` itself is unchanged.
+  3. Findings are printed one per violation (rule id, severity, title,
+     message, and any of `feature`/`dimension`/`fcf`/`datum` that are
+     set), followed by a per-severity summary count.
+  4. **Exit code 0** if there are no findings, **exit code 1** if there
+     are any (severity is not currently weighed — any finding at all
+     means exit 1).
+- There is no Markdown/HTML report output yet — only the plain-text
+  format described above.
 
 ## Decisions to be made
 
 - Whether `gdt_coach.rules.checks` needs auto-discovery (e.g. scanning
   the package for `Rule` subclasses) once there are enough rules that
-  hand-maintaining `checks/__init__.py`'s import list becomes tedious.
+  hand-maintaining the CLI's `_RULE_CLASSES` tuple (and
+  `checks/__init__.py`'s import list) becomes tedious.
 - Whether/where cross-model referential integrity (dangling
   `feature_id`, etc.) gets checked — plausibly as rules themselves
   rather than special-cased in the engine.
-- CLI wiring to actually run `RuleEngine` against a drawing and print
-  `Finding`s (and to call `gdt_coach.ingest` to build that drawing).
+- Whether exit code 1 should ever distinguish by severity (e.g. only
+  `ERROR`/`CRITICAL` findings fail the process, `WARNING`/`INFO` don't)
+  — currently any finding at all produces exit code 1.
+- Markdown/HTML (or JSON) report output, for consumption by CI or other
+  tooling instead of the human-readable terminal report.
 - Whether a versioned wire schema (e.g. a `schema_version` field, or
   YAML that doesn't mirror `gdt_coach.models` 1:1) is needed once the
   domain model changes in ways that would otherwise break existing
