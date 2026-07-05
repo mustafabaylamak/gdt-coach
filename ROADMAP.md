@@ -6,7 +6,7 @@
 - [x] Ruff (lint + format), Mypy (strict), Pytest + coverage
 - [x] pre-commit hooks
 - [x] GitHub Actions CI (lint, type-check, test on 3.11–3.13)
-- [x] Baseline docs (README, PROJECT, ARCHITECTURE, ROADMAP, CLAUDE)
+- [x] Baseline docs (README, PROJECT, ARCHITECTURE, ROADMAP)
 
 ## Phase 1 — Define scope
 

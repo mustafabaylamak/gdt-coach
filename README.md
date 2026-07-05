@@ -166,6 +166,23 @@ mypy src              # type-check
 pytest                # test (with coverage)
 ```
 
+## Contributing
+
+- Python 3.11+, fully type-annotated; `mypy --strict` must pass.
+- Formatting and linting are handled by Ruff — run `ruff format .` and
+  `ruff check --fix .` rather than hand-formatting.
+- Prefer `pathlib.Path` over `os.path` (enforced by Ruff's `PTH` rules).
+- New modules need corresponding tests under `tests/`.
+- Before submitting a change, all of the following must pass (CI runs
+  the same checks):
+  ```bash
+  ruff check . && ruff format --check .
+  mypy src
+  pytest
+  ```
+- Avoid force-pushing, amending published commits, or bypassing
+  pre-commit hooks (`--no-verify`) on shared branches.
+
 ## Project layout
 
 ```
