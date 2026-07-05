@@ -3,10 +3,12 @@
 ## Current state
 
 Sprint 1 added the domain model layer (`gdt_coach.models`). Sprint 2
-adds the rule engine *infrastructure* (`gdt_coach.rules`): a rule base
+added the rule engine *infrastructure* (`gdt_coach.rules`): a rule base
 class, a registry, an engine, and the findings/severity/category/
-standard vocabulary. No concrete GD&T rule is implemented yet, and
-there is still no parsing.
+standard vocabulary. Sprint 3 adds the first five concrete GD&T rules
+under `gdt_coach.rules.checks`, resolving the "where do rules live"
+question left open in Sprint 2. There is still no parsing and no CLI
+wiring to actually run the engine.
 
 ## Layout
 
@@ -19,9 +21,12 @@ there is still no parsing.
   - `rules/` — the rule engine: `Rule` base class, `Finding` model,
     `RuleRegistry`, `RuleEngine`, and the `Severity`/`RuleCategory`/
     `Standard` enums. See "Rule engine" below.
+    - `checks/` — concrete `Rule` subclasses, one module per rule. See
+      "Concrete rules" below.
 - `tests/` — pytest suite, mirrors the package layout (`tests/models/`
   mirrors `src/gdt_coach/models/`, `tests/rules/` mirrors
-  `src/gdt_coach/rules/`).
+  `src/gdt_coach/rules/`, `tests/rules/checks/` mirrors
+  `src/gdt_coach/rules/checks/`).
 - `docs/` — project documentation beyond the top-level `*.md` files.
 - `scripts/` — one-off or maintenance scripts not part of the package.
 
@@ -101,10 +106,49 @@ and how rules are run, not any actual GD&T rule:
 **Extensibility**: a new rule is a new `Rule` subclass in its own
 module, registered with `@default_registry.register` (or any other
 registry instance). Nothing in `base.py`, `registry.py`, or `engine.py`
-needs to change for that rule to start running. There is no rule
-discovery/plugin-loading mechanism yet (e.g. auto-importing a `rules/`
-subpackage) — modules containing rules must currently be imported
-somewhere for their `@registry.register` decorator to run.
+needs to change for that rule to start running.
+
+## Concrete rules
+
+`gdt_coach.rules.checks` holds the first five deterministic GD&T rules,
+one module per rule, each self-registering against `default_registry`
+via `@default_registry.register`. Importing `gdt_coach.rules.checks`
+(the package `__init__.py` imports every rule module) is what makes
+that registration happen — importing `gdt_coach.rules` alone still
+does not, so the infrastructure package stays free of any concrete
+rule. This resolves the "where do rules live / how do they get
+imported" question left open after Sprint 2.
+
+| Rule | id | Category | Standard |
+|---|---|---|---|
+| Flatness cannot reference datums | `flatness-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
+| Straightness cannot reference datums | `straightness-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
+| No duplicate datum references in one FCF | `fcf-duplicate-datum-references` | `FEATURE_CONTROL_FRAME` | GENERAL |
+| Position must reference at least one datum | `position-requires-datum-reference` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
+| Projected zone requires position | `projected-zone-requires-position` | `TOLERANCE` | ASME Y14.5-2018 |
+
+All five are `Severity.ERROR` and purely deterministic: every field
+they inspect (`characteristic`, `datum_references`,
+`tolerance.projected_zone_height`) is always present and unambiguous
+on a constructed `Drawing`, so none of them has a genuinely
+indeterminate case given the current domain model. There is also no
+"indeterminate" finding concept in the architecture yet (`Severity` has
+no `UNKNOWN`/`INDETERMINATE` member, and `Rule.check` must return a
+concrete `list[Finding]`) — adding one is future work if a later rule
+genuinely needs it.
+
+**Known limitation**: `fcf-duplicate-datum-references` duplicates a
+check the domain model already performs.
+`FeatureControlFrame.datum_references` has its own Pydantic validator
+that rejects duplicate labels at construction time (Sprint 1), so this
+rule's FAIL branch is unreachable for any `Drawing` built through
+normal, validated constructors — it only fires against a tree
+assembled via `model_construct()` (see
+`tests/rules/checks/test_duplicate_datum_references.py`), simulating
+data that bypassed validation (e.g. a future parser optimizing for
+speed). It is kept as defense-in-depth rather than removed, since the
+rule engine should not have to trust that every `Drawing` it ever
+receives was built the "normal" way.
 
 ## Tooling
 
@@ -129,12 +173,14 @@ somewhere for their `@registry.register` decorator to run.
 
 - Parsing approach (source format(s) for drawings, and how they map
   onto `gdt_coach.models`).
-- Where the first concrete GD&T rules live (e.g. one module per rule
-  under a new `gdt_coach.rules.checks` package) and how they get
-  imported so their registration actually runs.
+- Whether `gdt_coach.rules.checks` needs auto-discovery (e.g. scanning
+  the package for `Rule` subclasses) once there are enough rules that
+  hand-maintaining `checks/__init__.py`'s import list becomes tedious.
 - Whether/where cross-model referential integrity (dangling
   `feature_id`, etc.) gets checked — plausibly as rules themselves
   rather than special-cased in the engine.
+- CLI wiring to actually run `RuleEngine` against a drawing and print
+  `Finding`s.
 - Data storage / persistence approach, if any.
 
 Update this document as real architecture decisions are made.

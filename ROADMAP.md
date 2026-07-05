@@ -33,10 +33,25 @@
 - [x] Comprehensive unit tests (116 tests total, 100% coverage on
       `rules/`); still no concrete GD&T rules and no YAML parsing
 
+## Sprint 3 — First five GD&T rules (done)
+
+- [x] `gdt_coach.rules.checks` package: one module per rule, each
+      self-registering against `default_registry`
+- [x] Rules: flatness/straightness cannot reference datums, no
+      duplicate datum references in one FCF, position requires a
+      datum reference, projected zone requires position
+- [x] `RuleEngine` unchanged; rules integrate through the existing
+      registry/engine API
+- [x] Comprehensive PASS/FAIL unit tests per rule plus an end-to-end
+      registry+engine integration test (139 tests total, 100% coverage
+      on `rules/checks/`); still no YAML parsing and no CLI wiring
+
 ## Phase 2 — First business logic
 
 - [ ] Parsing: turn a source drawing into `gdt_coach.models` objects
-- [ ] First concrete GD&T rules registered against the Sprint 2 engine
+- [ ] More GD&T rules (orientation, form beyond straightness/flatness,
+      runout, profile, tolerance-value sanity checks, ...)
+- [ ] CLI command to run the rule engine against a drawing
 
 ## Later
 

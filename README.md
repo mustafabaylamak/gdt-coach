@@ -1,7 +1,7 @@
 # gdt-coach
 
-> Domain model and rule engine infrastructure only so far — no GD&T
-> rules and no parsing yet.
+> Domain model, rule engine infrastructure, and a first set of five
+> GD&T rules so far — no CLI wiring and no parsing yet.
 
 ## Requirements
 
@@ -38,31 +38,24 @@ drawing = Drawing(
 See [ARCHITECTURE.md](ARCHITECTURE.md#domain-model) for what each model
 represents.
 
-The rule engine can run rules against a drawing, but no concrete GD&T
-rule ships yet — this only demonstrates the wiring:
+Importing `gdt_coach.rules.checks` registers the first five GD&T rules
+(datum-reference checks for flatness, straightness, and position, plus
+a projected-tolerance-zone check) against the shared registry; running
+the engine then checks a drawing against all of them:
 
 ```python
-from gdt_coach.rules import Rule, RuleCategory, RuleEngine, Severity, Standard, default_registry
-
-
-@default_registry.register
-class ExampleRule(Rule):
-    id = "example-rule"
-    title = "Example rule"
-    severity = Severity.INFO
-    standard = Standard.GENERAL
-    category = RuleCategory.GENERAL
-    explanation = "Placeholder rule demonstrating registration."
-
-    def check(self, drawing):
-        return []
-
+import gdt_coach.rules.checks  # noqa: F401  (side effect: registers the rules)
+from gdt_coach.rules import RuleEngine
 
 findings = RuleEngine().run(drawing)
+for finding in findings:
+    print(finding.severity, finding.title, finding.message)
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#rule-engine) for how the
-registry and engine fit together.
+See [ARCHITECTURE.md](ARCHITECTURE.md#rule-engine) for how the registry
+and engine fit together, and
+[ARCHITECTURE.md](ARCHITECTURE.md#concrete-rules) for what each of the
+five rules checks.
 
 ## Development
 
@@ -80,6 +73,7 @@ gdt-coach/
 ├── src/gdt_coach/     # importable package (src layout)
 │   ├── models/        # GD&T domain models (Pydantic)
 │   └── rules/         # rule engine (base class, registry, engine)
+│       └── checks/    # concrete GD&T rules, one module per rule
 ├── tests/             # pytest test suite
 ├── docs/              # project documentation
 ├── scripts/           # developer/maintenance scripts
