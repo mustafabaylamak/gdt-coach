@@ -1,0 +1,27 @@
+# GD&T-invalid: a projected tolerance zone is only meaningful on a
+# position tolerance (see
+# gdt_coach.rules.checks.projected_zone_requires_position), but this
+# feature control frame applies it to perpendicularity instead. This
+# file still loads into a valid Drawing; running
+# ProjectedZoneRequiresPositionRule against it produces exactly one
+# finding.
+id: dwg-003
+title: Threaded Plate
+default_unit: mm
+
+datums:
+  - label: A
+    feature_type: plane
+
+features:
+  - id: feat-hole-1
+    feature_type: hole
+    feature_control_frames:
+      - id: fcf-1
+        characteristic: perpendicularity
+        tolerance:
+          upper_deviation: 0.1
+          lower_deviation: 0.1
+          projected_zone_height: 12.0
+        datum_references:
+          - datum_label: A

@@ -5,10 +5,11 @@
 Sprint 1 added the domain model layer (`gdt_coach.models`). Sprint 2
 added the rule engine *infrastructure* (`gdt_coach.rules`): a rule base
 class, a registry, an engine, and the findings/severity/category/
-standard vocabulary. Sprint 3 adds the first five concrete GD&T rules
-under `gdt_coach.rules.checks`, resolving the "where do rules live"
-question left open in Sprint 2. There is still no parsing and no CLI
-wiring to actually run the engine.
+standard vocabulary. Sprint 3 added the first five concrete GD&T rules
+under `gdt_coach.rules.checks`. Sprint 4 adds a YAML ingest layer
+(`gdt_coach.ingest`) that loads a `Drawing` from a YAML file. There is
+still no CLI wiring to actually run the engine, and no other input
+format (PDF/DXF/CAD) is supported.
 
 ## Layout
 
@@ -23,10 +24,16 @@ wiring to actually run the engine.
     `Standard` enums. See "Rule engine" below.
     - `checks/` — concrete `Rule` subclasses, one module per rule. See
       "Concrete rules" below.
+  - `ingest/` — YAML loading: turns a YAML document into a validated
+    `Drawing`. See "Ingest layer" below.
 - `tests/` — pytest suite, mirrors the package layout (`tests/models/`
   mirrors `src/gdt_coach/models/`, `tests/rules/` mirrors
   `src/gdt_coach/rules/`, `tests/rules/checks/` mirrors
-  `src/gdt_coach/rules/checks/`).
+  `src/gdt_coach/rules/checks/`, `tests/ingest/` mirrors
+  `src/gdt_coach/ingest/`).
+- `examples/` — sample YAML drawings used by `tests/ingest/` and as
+  reference documentation; not shipped as part of the installed
+  package.
 - `docs/` — project documentation beyond the top-level `*.md` files.
 - `scripts/` — one-off or maintenance scripts not part of the package.
 
@@ -150,6 +157,38 @@ speed). It is kept as defense-in-depth rather than removed, since the
 rule engine should not have to trust that every `Drawing` it ever
 receives was built the "normal" way.
 
+## Ingest layer
+
+`gdt_coach.ingest` is a thin translation layer: it turns YAML text into
+a plain dict (via `yaml.safe_load`) and hands that straight to
+`Drawing.model_validate()`. It adds no GD&T semantics and no extra
+validation of its own — every check that runs is either "is this valid
+YAML" or a check `Drawing` (and its nested models) already performs.
+
+- `yaml_loader.py` — `load_drawing_from_yaml_string(text, *,
+  source_name=...)` and `load_drawing_from_yaml_file(path)`. Both
+  return a `Drawing` or raise.
+- `exceptions.py` — `YamlParseError` (not valid YAML, or not a mapping,
+  or an empty document) and `DrawingValidationError` (parses fine but
+  fails `Drawing`'s validation — wraps the underlying Pydantic
+  `ValidationError`). Both subclass `IngestError`.
+
+**YAML schema**: the YAML mirrors `gdt_coach.models` field names and
+nesting directly (`Drawing` -> `features`/`datums` ->
+`dimensions`/`feature_control_frames` -> `tolerance`/
+`datum_references`) — there is no separate/versioned wire schema to
+keep in sync. Enum fields (`feature_type`, `dimension_type`,
+`characteristic`, `unit`, `zone_shape`, `material_condition`, ...) use
+the same lowercase string values as each enum's `.value` (e.g.
+`characteristic: position`, `unit: mm`). Because `GDTBaseModel` sets
+`extra="forbid"`, an unrecognized YAML key is a validation error rather
+than being silently ignored. See `examples/*.yaml` for complete
+drawings and the README for a field-by-field walkthrough.
+
+**Deliberately not done here**: running the rule engine (the loader
+only builds a `Drawing`; nothing calls `RuleEngine`), CLI wiring, and
+any non-YAML input format (PDF/DXF/CAD).
+
 ## Tooling
 
 | Concern       | Tool         | Config location         |
@@ -157,6 +196,7 @@ receives was built the "normal" way.
 | Packaging     | Hatchling    | `pyproject.toml`         |
 | Domain models | Pydantic v2  | `pyproject.toml` (dependency), `src/gdt_coach/models/` |
 | Rule engine   | stdlib only  | `src/gdt_coach/rules/`   |
+| YAML ingest   | PyYAML       | `pyproject.toml` (dependency), `src/gdt_coach/ingest/` |
 | Linting       | Ruff         | `pyproject.toml`         |
 | Formatting    | Ruff format  | `pyproject.toml`         |
 | Type checking | Mypy (strict)| `pyproject.toml`         |
@@ -171,8 +211,6 @@ receives was built the "normal" way.
 
 ## Decisions to be made
 
-- Parsing approach (source format(s) for drawings, and how they map
-  onto `gdt_coach.models`).
 - Whether `gdt_coach.rules.checks` needs auto-discovery (e.g. scanning
   the package for `Rule` subclasses) once there are enough rules that
   hand-maintaining `checks/__init__.py`'s import list becomes tedious.
@@ -180,7 +218,12 @@ receives was built the "normal" way.
   `feature_id`, etc.) gets checked — plausibly as rules themselves
   rather than special-cased in the engine.
 - CLI wiring to actually run `RuleEngine` against a drawing and print
-  `Finding`s.
+  `Finding`s (and to call `gdt_coach.ingest` to build that drawing).
+- Whether a versioned wire schema (e.g. a `schema_version` field, or
+  YAML that doesn't mirror `gdt_coach.models` 1:1) is needed once the
+  domain model changes in ways that would otherwise break existing
+  YAML files.
+- Other input formats (PDF/DXF/CAD) — explicitly out of scope for now.
 - Data storage / persistence approach, if any.
 
 Update this document as real architecture decisions are made.

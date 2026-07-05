@@ -1,0 +1,25 @@
+# GD&T-invalid: flatness is a form tolerance and must never reference a
+# datum (see gdt_coach.rules.checks.flatness_no_datum_references). This
+# file still loads into a valid Drawing -- the domain model does not
+# enforce GD&T semantics, only the rule engine does. Loading this file
+# and then running FlatnessNoDatumReferencesRule against it produces
+# exactly one finding.
+id: dwg-002
+title: Cover Plate
+default_unit: mm
+
+datums:
+  - label: A
+    feature_type: plane
+
+features:
+  - id: feat-surface-1
+    feature_type: surface
+    feature_control_frames:
+      - id: fcf-1
+        characteristic: flatness
+        tolerance:
+          upper_deviation: 0.05
+          lower_deviation: 0.05
+        datum_references:
+          - datum_label: A

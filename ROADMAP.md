@@ -46,12 +46,27 @@
       registry+engine integration test (139 tests total, 100% coverage
       on `rules/checks/`); still no YAML parsing and no CLI wiring
 
+## Sprint 4 — YAML ingest (done)
+
+- [x] `gdt_coach.ingest` package: `load_drawing_from_yaml_string` /
+      `load_drawing_from_yaml_file`, translating YAML directly into
+      `Drawing.model_validate()` with no added GD&T semantics
+- [x] `YamlParseError` / `DrawingValidationError` (`IngestError` base)
+      for malformed YAML vs. domain-model validation failures
+- [x] `examples/`: `valid_position.yaml`,
+      `invalid_flatness_with_datum.yaml`, `invalid_projected_zone.yaml`
+      (the "invalid" ones load into a valid `Drawing` but are flagged
+      by the Sprint 3 rules — ingest and rule-checking stay decoupled)
+- [x] Comprehensive tests (156 tests total, 100% coverage on
+      `ingest/`), including an end-to-end YAML -> Drawing -> RuleEngine
+      test per example; `RuleEngine` unchanged, no CLI wiring
+
 ## Phase 2 — First business logic
 
-- [ ] Parsing: turn a source drawing into `gdt_coach.models` objects
 - [ ] More GD&T rules (orientation, form beyond straightness/flatness,
       runout, profile, tolerance-value sanity checks, ...)
-- [ ] CLI command to run the rule engine against a drawing
+- [ ] CLI command to load a YAML drawing and run the rule engine
+      against it
 
 ## Later
 

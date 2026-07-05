@@ -1,0 +1,46 @@
+# A GD&T-valid drawing: a position tolerance with a full three-datum
+# reference frame, no duplicate datum references, and no projected
+# tolerance zone on a non-position characteristic. Running the rule
+# engine's five Sprint 3 checks against this drawing produces zero
+# findings.
+id: dwg-001
+title: Mounting Bracket
+number: DWG-1001
+revision: A
+default_unit: mm
+scale: "1:1"
+
+datums:
+  - label: A
+    feature_type: plane
+  - label: B
+    feature_type: plane
+  - label: C
+    feature_type: plane
+
+features:
+  - id: feat-hole-1
+    feature_type: hole
+    name: Mounting hole
+    quantity: 4
+    feature_of_size: true
+    dimensions:
+      - id: dim-1
+        dimension_type: diameter
+        nominal_value: 10.0
+        unit: mm
+        tolerance:
+          upper_deviation: 0.05
+          lower_deviation: 0.05
+    feature_control_frames:
+      - id: fcf-1
+        characteristic: position
+        tolerance:
+          upper_deviation: 0.25
+          lower_deviation: 0.25
+          zone_shape: cylindrical
+          material_condition: mmc
+        datum_references:
+          - datum_label: A
+          - datum_label: B
+          - datum_label: C
