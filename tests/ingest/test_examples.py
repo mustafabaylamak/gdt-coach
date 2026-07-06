@@ -4,19 +4,15 @@ These exercise the full pipeline (YAML -> Drawing -> RuleEngine) end to
 end, without changing RuleEngine or wiring up a CLI. A fresh
 RuleRegistry is used (rather than the shared default_registry) so this
 test doesn't depend on whether other test modules have already
-imported `gdt_coach.rules.checks`.
+imported `gdt_coach.rules.checks`. `ALL_RULE_CLASSES` is the single
+source of truth for "every concrete rule" -- see
+`gdt_coach.rules.checks` and `tests/rules/checks/test_registration.py`.
 """
 
 from pathlib import Path
 
 from gdt_coach.ingest import load_drawing_from_yaml_file
-from gdt_coach.rules.checks import (
-    DuplicateDatumReferencesRule,
-    FlatnessNoDatumReferencesRule,
-    PositionRequiresDatumReferenceRule,
-    ProjectedZoneRequiresPositionRule,
-    StraightnessNoDatumReferencesRule,
-)
+from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.engine import RuleEngine
 from gdt_coach.rules.registry import RuleRegistry
 
@@ -25,13 +21,7 @@ _EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
 
 def _engine_with_all_rules() -> RuleEngine:
     registry = RuleRegistry()
-    for rule_cls in (
-        FlatnessNoDatumReferencesRule,
-        StraightnessNoDatumReferencesRule,
-        DuplicateDatumReferencesRule,
-        PositionRequiresDatumReferenceRule,
-        ProjectedZoneRequiresPositionRule,
-    ):
+    for rule_cls in ALL_RULE_CLASSES:
         registry.register(rule_cls)
     return RuleEngine(registry=registry)
 

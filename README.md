@@ -1,7 +1,8 @@
 # gdt-coach
 
 > Domain model, rule engine infrastructure, a first set of five GD&T
-> rules, a YAML loader, and a CLI `check` command so far.
+> rules, a YAML loader, and a CLI `check` command (with filters and
+> JSON output) so far.
 
 ## Requirements
 
@@ -47,12 +48,67 @@ Exit codes:
 |---|---|
 | `0` | The drawing loaded and no rule reported a finding. |
 | `1` | The drawing loaded but one or more rules reported a finding. |
-| `2` | The YAML couldn't be loaded: malformed YAML, a missing file, or a document that fails `Drawing` validation. |
+| `2` | The input couldn't be checked: malformed YAML, a missing file, a document that fails `Drawing` validation, or an invalid `--category`/`--standard` value. |
 
-`check` always runs the five rules from
-[ARCHITECTURE.md#concrete-rules](ARCHITECTURE.md#concrete-rules); there
-is no flag yet to run a subset, and report output is plain text only
-(no Markdown/HTML/JSON yet).
+#### Filtering: `--category` / `--standard`
+
+Narrow which rules run with `--category` (repeatable) and/or
+`--standard`:
+
+```bash
+gdt-coach check examples/invalid_flatness_with_datum.yaml --category feature_control_frame
+gdt-coach check examples/valid_position.yaml --standard asme_y14.5_2018
+```
+
+Both map directly onto `RuleEngine.run(categories=, standard=)`. Valid
+values are each enum's `.value` (see
+[enums.py](src/gdt_coach/rules/category.py) and
+[standard.py](src/gdt_coach/rules/standard.py)); an unrecognized value
+prints the valid options and exits with code `2`:
+
+```bash
+$ gdt-coach check examples/valid_position.yaml --category bogus
+error: invalid --category value ('bogus' is not a valid RuleCategory); valid categories: drawing, feature, datum, dimension, feature_control_frame, tolerance, general
+```
+
+#### `--json`
+
+```bash
+gdt-coach check examples/invalid_projected_zone.yaml --json
+```
+
+```json
+{
+  "path": "examples/invalid_projected_zone.yaml",
+  "drawing": { "id": "dwg-003", "title": "Threaded Plate" },
+  "rules_run": 5,
+  "findings": [
+    {
+      "rule_id": "projected-zone-requires-position",
+      "title": "Projected tolerance zone requires a position tolerance",
+      "severity": "error",
+      "standard": "asme_y14.5_2018",
+      "category": "tolerance",
+      "message": "feature control frame 'fcf-1' specifies a projected tolerance zone but its characteristic is 'perpendicularity', not position",
+      "feature_id": "feat-hole-1",
+      "dimension_id": null,
+      "fcf_id": "fcf-1",
+      "datum_label": null
+    }
+  ],
+  "summary": { "finding_count": 1, "by_severity": { "error": 1 } }
+}
+```
+
+`--json` combines with `--category`/`--standard`; exit codes are
+identical between text and JSON output. Errors (load failures, invalid
+filter values) are always plain text on stderr, even with `--json`,
+since there is no report to format when loading fails.
+
+`check` runs the rules from
+[ARCHITECTURE.md#concrete-rules](ARCHITECTURE.md#concrete-rules)
+(filtered by `--category`/`--standard` if given); there is no
+Markdown/HTML output yet.
 
 The GD&T domain model is available as a library:
 

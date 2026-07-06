@@ -75,11 +75,33 @@
       and direct unit tests of the report formatting helpers
 - [x] `RuleEngine` unchanged; no new GD&T rules; no Markdown/HTML report
 
+## Sprint 6 — Registration hardening + CLI reporting UX (done)
+
+- [x] Single source of truth: `ALL_RULE_CLASSES` tuple exposed from
+      `gdt_coach.rules.checks`, replacing four separate hardcoded
+      rule-class lists (`cli.py`, `test_registration.py`,
+      `test_examples.py`, plus the module's own registration) found
+      during a Sprint 5 architecture review
+- [x] `gdt-coach check` gained `--category` (repeatable) and
+      `--standard` filters, delegating straight to the existing
+      `RuleEngine.run(categories=, standard=)`; invalid values are
+      caught and mapped to exit code 2 with the valid options listed
+- [x] `gdt-coach check --json`: machine-readable report (`path`,
+      `drawing`, `rules_run`, `findings`, `summary`); plain text stays
+      the default; exit codes 0/1/2 unchanged and identical between
+      both output modes
+- [x] Two near-duplicate rule test files (flatness/straightness)
+      collapsed into one parametrized test module as a reusable pattern
+      for future "characteristic X must/must not reference datums"
+      rules
+- [x] Comprehensive tests (180 tests total); `RuleEngine` and domain
+      models unchanged; no new GD&T rules
+
 ## Phase 2 — First business logic
 
 - [ ] More GD&T rules (orientation, form beyond straightness/flatness,
       runout, profile, tolerance-value sanity checks, ...)
-- [ ] Markdown/HTML/JSON report output for `gdt-coach check`
+- [ ] Markdown/HTML report output for `gdt-coach check` (JSON done)
 
 ## Later
 

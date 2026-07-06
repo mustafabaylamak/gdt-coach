@@ -1,11 +1,18 @@
 """Tests for the CLI, including the `check` command."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from gdt_coach import __version__
-from gdt_coach.cli import _format_finding, _summarize_severities, build_parser, main
+from gdt_coach.cli import (
+    _count_by_severity,
+    _format_finding,
+    _format_severity_counts,
+    build_parser,
+    main,
+)
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.finding import Finding
 from gdt_coach.rules.severity import Severity
@@ -163,14 +170,156 @@ def test_format_finding_with_partial_location() -> None:
     assert "dimension=" not in formatted
 
 
-def test_summarize_severities_counts_by_severity() -> None:
+def test_count_by_severity_counts_by_severity() -> None:
     findings = [
         _finding(severity=Severity.ERROR),
         _finding(severity=Severity.ERROR),
         _finding(severity=Severity.WARNING),
     ]
 
-    summary = _summarize_severities(findings)
+    counts = _count_by_severity(findings)
+
+    assert counts == {"error": 2, "warning": 1}
+
+
+def test_format_severity_counts_renders_readable_summary() -> None:
+    summary = _format_severity_counts({"error": 2, "warning": 1})
 
     assert "2 error" in summary
     assert "1 warning" in summary
+
+
+# --- --category / --standard filters -------------------------------------
+
+
+def test_check_category_filter_excludes_non_matching_rule(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path), "--category", "tolerance"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Rules run: 1" in out
+    assert "No findings." in out
+
+
+def test_check_category_filter_still_catches_matching_rule(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path), "--category", "feature_control_frame"])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "flatness-no-datum-references" in out
+
+
+def test_check_category_filter_is_repeatable(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(
+        ["check", str(path), "--category", "feature_control_frame", "--category", "tolerance"]
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "Rules run: 5" in out
+
+
+def test_check_standard_filter_narrows_rules_run(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--standard", "general"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Rules run: 1" in out
+
+
+def test_check_invalid_category_exits_two_with_stderr_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--category", "bogus"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid --category value" in captured.err
+    assert "drawing" in captured.err  # valid options are listed
+
+
+def test_check_invalid_standard_exits_two_with_stderr_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--standard", "bogus"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid --standard value" in captured.err
+
+
+# --- --json output ---------------------------------------------------------
+
+
+def test_check_json_output_is_valid_json(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "invalid_projected_zone.yaml"
+
+    exit_code = main(["check", str(path), "--json"])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["path"] == str(path)
+    assert payload["drawing"] == {"id": "dwg-003", "title": "Threaded Plate"}
+    assert payload["rules_run"] == 5
+    assert payload["summary"] == {"finding_count": 1, "by_severity": {"error": 1}}
+    assert len(payload["findings"]) == 1
+    finding = payload["findings"][0]
+    assert finding["rule_id"] == "projected-zone-requires-position"
+    assert finding["severity"] == "error"
+    assert finding["feature_id"] == "feat-hole-1"
+    assert finding["fcf_id"] == "fcf-1"
+    assert finding["dimension_id"] is None
+
+
+def test_check_json_output_with_no_findings(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["findings"] == []
+    assert payload["summary"] == {"finding_count": 0, "by_severity": {}}
+
+
+def test_check_json_output_respects_category_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path), "--json", "--category", "tolerance"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["rules_run"] == 1
+    assert payload["findings"] == []
+
+
+def test_check_invalid_filter_with_json_flag_still_exits_two_plain_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Errors are always plain text on stderr, even with --json requested."""
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--json", "--category", "bogus"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid --category value" in captured.err

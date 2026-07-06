@@ -8,10 +8,12 @@ class, a registry, an engine, and the findings/severity/category/
 standard vocabulary. Sprint 3 added the first five concrete GD&T rules
 under `gdt_coach.rules.checks`. Sprint 4 added a YAML ingest layer
 (`gdt_coach.ingest`) that loads a `Drawing` from a YAML file. Sprint 5
-wires all of this into the CLI: `gdt-coach check <path>` loads a YAML
-drawing, runs the rule engine, and prints a report. No other input
-format (PDF/DXF/CAD) is supported, and there is no Markdown/HTML
-report output yet.
+wired all of this into the CLI: `gdt-coach check <path>` loads a YAML
+drawing, runs the rule engine, and prints a report. Sprint 6 hardened
+that wiring: one canonical `ALL_RULE_CLASSES` tuple replaces four
+separate hardcoded rule lists, and `check` gained `--category`/
+`--standard` filters and a `--json` output mode. No other input format
+(PDF/DXF/CAD) is supported, and there is no Markdown/HTML report output.
 
 ## Layout
 
@@ -128,6 +130,22 @@ does not, so the infrastructure package stays free of any concrete
 rule. This resolves the "where do rules live / how do they get
 imported" question left open after Sprint 2.
 
+`checks/__init__.py` also exposes `ALL_RULE_CLASSES` — a plain
+`tuple[type[Rule], ...]` listing every rule class. This is the single
+source of truth for "every concrete rule that exists": the CLI
+(`cli.py`) and the tests that need to enumerate all rules
+(`tests/rules/checks/test_registration.py`,
+`tests/ingest/test_examples.py`) all import this tuple instead of each
+keeping their own copy of the rule-class list, which is what Sprints
+3–5 had actually done (four separate hardcoded lists of the same five
+classes, found during a Sprint 5 architecture review and fixed in
+Sprint 6). Adding rule #6 now means: write its module, add one line to
+`checks/__init__.py`'s imports and `ALL_RULE_CLASSES` tuple, and write
+its test — nothing else needs to change. There is still no
+auto-discovery (e.g. scanning the package for `Rule` subclasses);
+that's deferred until the hand-maintained list itself becomes the
+bottleneck.
+
 | Rule | id | Category | Standard |
 |---|---|---|---|
 | Flatness cannot reference datums | `flatness-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
@@ -212,43 +230,66 @@ The ingest layer itself still only builds a `Drawing` and never calls
 built with `argparse` subparsers.
 
 - `gdt-coach --version` / `gdt-coach --help` — unchanged since Sprint 0.
-- `gdt-coach check <path>` — the only place in the codebase that wires
-  the ingest layer to the rule engine:
+- `gdt-coach check <path> [--category CATEGORY]... [--standard STANDARD] [--json]`
+  — the only place in the codebase that wires the ingest layer to the
+  rule engine:
   1. `gdt_coach.ingest.load_drawing_from_yaml_file(path)` loads the
      `Drawing`. `IngestError` or `OSError` (e.g. a missing file) is
      caught, printed to stderr, and maps to **exit code 2**.
-  2. A `RuleRegistry` is built and populated with the five
-     `gdt_coach.rules.checks` classes *inside the CLI module*, not via
-     the shared `default_registry` — `check` doesn't depend on what
-     else in the process may have imported or cleared the global
-     registry. `RuleEngine` itself is unchanged.
-  3. Findings are printed one per violation (rule id, severity, title,
-     message, and any of `feature`/`dimension`/`fcf`/`datum` that are
-     set), followed by a per-severity summary count.
-  4. **Exit code 0** if there are no findings, **exit code 1** if there
+  2. `--category` (repeatable) and `--standard` are parsed into a
+     `set[RuleCategory] | None` and `Standard | None` and passed
+     straight through to the existing `RuleEngine.run(categories=,
+     standard=)` parameters (unchanged since Sprint 2) — the CLI adds
+     no filtering logic of its own beyond converting strings to enum
+     members. An invalid value (not a real category/standard) is
+     caught, an error listing the valid options is printed to stderr,
+     and this also maps to **exit code 2**.
+  3. A `RuleRegistry` is built and populated from `ALL_RULE_CLASSES`
+     *inside the CLI module* per invocation, not via the shared
+     `default_registry` — `check` doesn't depend on what else in the
+     process may have imported or cleared the global registry.
+     `RuleEngine` itself is unchanged.
+  4. By default, output is the plain-text report: one block per
+     finding (rule id, severity, title, message, and any of
+     `feature`/`dimension`/`fcf`/`datum` that are set), followed by a
+     per-severity summary count. `--json` instead prints one JSON
+     object (`path`, `drawing`, `rules_run`, `findings` — each
+     `Finding.model_dump(mode="json")` — and `summary`); errors are
+     always plain text on stderr regardless of `--json`, since a
+     load/filter failure means there is no report to format.
+  5. **Exit code 0** if there are no findings, **exit code 1** if there
      are any (severity is not currently weighed — any finding at all
-     means exit 1).
-- There is no Markdown/HTML report output yet — only the plain-text
-  format described above.
+     means exit 1), **exit code 2** for any load or filter-value error.
+- There is no Markdown/HTML report output yet — only plain-text and
+  JSON as described above.
 
 ## Decisions to be made
 
-- Whether `gdt_coach.rules.checks` needs auto-discovery (e.g. scanning
-  the package for `Rule` subclasses) once there are enough rules that
-  hand-maintaining the CLI's `_RULE_CLASSES` tuple (and
-  `checks/__init__.py`'s import list) becomes tedious.
+- Whether `gdt_coach.rules.checks` needs true auto-discovery (e.g.
+  scanning the package for `Rule` subclasses) once hand-maintaining
+  `ALL_RULE_CLASSES` and `checks/__init__.py`'s import list itself
+  becomes tedious — deferred again in Sprint 6 as premature at five
+  rules; revisit once the list is meaningfully larger.
 - Whether/where cross-model referential integrity (dangling
   `feature_id`, etc.) gets checked — plausibly as rules themselves
   rather than special-cased in the engine.
 - Whether exit code 1 should ever distinguish by severity (e.g. only
   `ERROR`/`CRITICAL` findings fail the process, `WARNING`/`INFO` don't)
   — currently any finding at all produces exit code 1.
-- Markdown/HTML (or JSON) report output, for consumption by CI or other
-  tooling instead of the human-readable terminal report.
+- Markdown/HTML report output (JSON is done as of Sprint 6), for
+  consumption by CI or other tooling instead of the human-readable
+  terminal report.
+- A formal JSON Schema (Pydantic can generate one via
+  `model_json_schema()`) as an integration contract for `Finding`/
+  `Drawing`, once something external actually needs to consume
+  `--json` output against a fixed contract.
 - Whether a versioned wire schema (e.g. a `schema_version` field, or
   YAML that doesn't mirror `gdt_coach.models` 1:1) is needed once the
   domain model changes in ways that would otherwise break existing
   YAML files.
+- A documented policy on paraphrasing vs. quoting ASME Y14.5/ISO 1101
+  in rule `explanation` text — no verbatim standard text exists today,
+  but nothing currently stops a future rule from copying it in.
 - Other input formats (PDF/DXF/CAD) — explicitly out of scope for now.
 - Data storage / persistence approach, if any.
 
