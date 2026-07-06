@@ -1,19 +1,37 @@
 # ARCHITECTURE.md
 
-## Current state
+## Overview
 
-Sprint 1 added the domain model layer (`gdt_coach.models`). Sprint 2
-added the rule engine *infrastructure* (`gdt_coach.rules`): a rule base
-class, a registry, an engine, and the findings/severity/category/
-standard vocabulary. Sprint 3 added the first five concrete GD&T rules
-under `gdt_coach.rules.checks`. Sprint 4 added a YAML ingest layer
-(`gdt_coach.ingest`) that loads a `Drawing` from a YAML file. Sprint 5
-wired all of this into the CLI: `gdt-coach check <path>` loads a YAML
-drawing, runs the rule engine, and prints a report. Sprint 6 hardened
-that wiring: one canonical `ALL_RULE_CLASSES` tuple replaces four
-separate hardcoded rule lists, and `check` gained `--category`/
-`--standard` filters and a `--json` output mode. No other input format
-(PDF/DXF/CAD) is supported, and there is no Markdown/HTML report output.
+`gdt-coach` is organized as four layers, each independent of the ones
+above it:
+
+```
+YAML file
+   │  gdt_coach.ingest
+   ▼
+Drawing (Pydantic domain model)      gdt_coach.models
+   │
+   ▼
+RuleEngine.run(drawing)              gdt_coach.rules (+ .checks)
+   │
+   ▼
+list[Finding]  ──────────────────►   gdt_coach.cli (text or JSON report)
+```
+
+- **Domain model** (`gdt_coach.models`) — Pydantic v2 models describing a
+  GD&T drawing. No parsing, no rule logic.
+- **Rule engine** (`gdt_coach.rules`) — infrastructure for defining and
+  running rules against a `Drawing`. Knows nothing about any specific
+  rule.
+- **Concrete rules** (`gdt_coach.rules.checks`) — 14 deterministic ASME
+  Y14.5 rules, each a small, independent module.
+- **Ingest** (`gdt_coach.ingest`) — loads a `Drawing` from YAML. No other
+  input format is supported yet.
+- **CLI** (`gdt_coach.cli`) — the only place that wires ingest to the
+  rule engine and prints a report.
+
+No PDF/DXF/CAD/image input is supported, and there is no Markdown/HTML
+report output — only plain text and JSON.
 
 ## Layout
 
@@ -35,11 +53,14 @@ separate hardcoded rule lists, and `check` gained `--category`/
   `src/gdt_coach/rules/`, `tests/rules/checks/` mirrors
   `src/gdt_coach/rules/checks/`, `tests/ingest/` mirrors
   `src/gdt_coach/ingest/`).
-- `examples/` — sample YAML drawings used by `tests/ingest/` and as
-  reference documentation; not shipped as part of the installed
-  package.
-- `docs/` — project documentation beyond the top-level `*.md` files.
-- `scripts/` — one-off or maintenance scripts not part of the package.
+- `examples/` — sample YAML drawings, used both by `tests/ingest/` and
+  as runnable documentation (see `examples/README.md`); not shipped as
+  part of the installed package.
+- `docs/` — reserved for documentation beyond the top-level `*.md`
+  files (design notes, ADRs) once there is enough of it to warrant a
+  subdirectory.
+- `scripts/` — reserved for standalone developer/maintenance scripts,
+  not part of the installable package. None exist yet.
 
 ## Domain model
 
@@ -79,11 +100,12 @@ unknown fields and re-validates on attribute assignment
 Model validators only reject data that is *structurally impossible*
 (negative tolerance, a diameter of zero, duplicate datum labels,
 mismatched dimension type/unit). They never encode GD&T interpretation
-rules (e.g. "flatness cannot reference a datum") — that belongs to a
-future rule engine that operates on a fully-assembled `Drawing`.
-Referential integrity between id fields (`Feature.id`,
-`Datum.referenced_feature_id`, `FeatureControlFrame.feature_id`) is
-intentionally not enforced yet, for the same reason.
+rules (e.g. "flatness cannot reference a datum") — that's the rule
+engine's job, operating on a fully-assembled `Drawing`. Referential
+integrity between id fields (`Feature.id`, `Datum.referenced_feature_id`,
+`FeatureControlFrame.feature_id`) is intentionally not enforced at the
+model level, for the same reason — see `datum-reference-must-be-defined`
+below for an example of this being handled as a rule instead.
 
 ## Rule engine
 
@@ -121,14 +143,12 @@ needs to change for that rule to start running.
 
 ## Concrete rules
 
-`gdt_coach.rules.checks` holds 14 deterministic GD&T rules (5 from
-Sprint 3, 9 from Sprint 7), one module per rule, each self-registering
-against `default_registry` via `@default_registry.register`. Importing
-`gdt_coach.rules.checks` (the package `__init__.py` imports every rule
-module) is what makes that registration happen — importing
-`gdt_coach.rules` alone still does not, so the infrastructure package
-stays free of any concrete rule. This resolves the "where do rules
-live / how do they get imported" question left open after Sprint 2.
+`gdt_coach.rules.checks` holds 14 deterministic GD&T rules, one module
+per rule, each self-registering against `default_registry` via
+`@default_registry.register`. Importing `gdt_coach.rules.checks` (the
+package `__init__.py` imports every rule module) is what makes that
+registration happen — importing `gdt_coach.rules` alone does not, so
+the infrastructure package stays free of any concrete rule.
 
 `checks/__init__.py` also exposes `ALL_RULE_CLASSES` — a plain
 `tuple[type[Rule], ...]` listing every rule class. This is the single
@@ -136,96 +156,81 @@ source of truth for "every concrete rule that exists": the CLI
 (`cli.py`) and the tests that need to enumerate all rules
 (`tests/rules/checks/test_registration.py`,
 `tests/ingest/test_examples.py`) all import this tuple instead of each
-keeping their own copy of the rule-class list, which is what Sprints
-3–5 had actually done (four separate hardcoded lists of the same five
-classes, found during a Sprint 5 architecture review and fixed in
-Sprint 6). Adding rule #6 now means: write its module, add one line to
-`checks/__init__.py`'s imports and `ALL_RULE_CLASSES` tuple, and write
-its test — nothing else needs to change. There is still no
-auto-discovery (e.g. scanning the package for `Rule` subclasses);
-that's deferred until the hand-maintained list itself becomes the
-bottleneck.
+keeping their own copy of the rule-class list. Adding a new rule means:
+write its module, add one line to `checks/__init__.py`'s imports and
+`ALL_RULE_CLASSES` tuple, and write its test — nothing else needs to
+change. There is no auto-discovery (e.g. scanning the package for
+`Rule` subclasses) yet; that's not worth the added complexity at the
+current rule count and would be revisited if the hand-maintained list
+became the bottleneck.
 
-### Sprint 3 rules
+Rules were selected by auditing candidate rules against the actual
+domain model — classifying each as implementable now with existing
+fields, blocked on a small model change, blocked on a major model
+change, or out of scope entirely — rather than implementing whatever
+seemed interesting first. Rules requiring a model change that doesn't
+exist yet (see "Decisions to be made" below) were deliberately deferred
+rather than approximated with a heuristic.
 
-| Rule | id | Category | Standard |
-|---|---|---|---|
-| Flatness cannot reference datums | `flatness-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
-| Straightness cannot reference datums | `straightness-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
-| No duplicate datum references in one FCF | `fcf-duplicate-datum-references` | `FEATURE_CONTROL_FRAME` | GENERAL |
-| Position must reference at least one datum | `position-requires-datum-reference` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
-| Projected zone requires position | `projected-zone-requires-position` | `TOLERANCE` | ASME Y14.5-2018 |
-
-**Known limitation**: `fcf-duplicate-datum-references` duplicates a
-check the domain model already performs.
-`FeatureControlFrame.datum_references` has its own Pydantic validator
-that rejects duplicate labels at construction time (Sprint 1), so this
-rule's FAIL branch is unreachable for any `Drawing` built through
-normal, validated constructors — it only fires against a tree
-assembled via `model_construct()` (see
-`tests/rules/checks/test_duplicate_datum_references.py`), simulating
-data that bypassed validation (e.g. a future parser optimizing for
-speed). It is kept as defense-in-depth rather than removed, since the
-rule engine should not have to trust that every `Drawing` it ever
-receives was built the "normal" way.
-
-### Sprint 7 rules
-
-Selected from a 30-rule ASME Y14.5 roadmap via an architecture audit
-that checked every proposed rule against the actual domain model (not
-just the roadmap's assumptions) and picked the 8 highest-value items
-implementable with zero model changes and zero heuristics. The
-`FORM.001` roadmap item ("form tolerances take no datums") was already
-half-implemented in Sprint 3 (flatness, straightness); Sprint 7
-completes it with circularity and cylindricity, reusing the Sprint 6
-parametrized test module (`test_form_tolerance_no_datum_rules.py`) for
-all four rather than writing bespoke files.
-
-| Rule | id | Category | Standard | Severity |
+| Rule | id | Topic | Standard | Severity |
 |---|---|---|---|---|
-| Referenced datums must be defined | `datum-reference-must-be-defined` | `FEATURE_CONTROL_FRAME` | GENERAL | ERROR |
-| Concentricity/symmetry deprecated | `concentricity-symmetry-deprecated` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | WARNING |
-| Circularity cannot reference datums | `circularity-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
-| Cylindricity cannot reference datums | `cylindricity-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
-| Straightness/flatness MMC only on FOS | `form-mmc-requires-feature-of-size` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
-| Orientation requires ≥1 datum | `orientation-requires-datum-reference` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
-| Position applies only to a Feature of Size | `position-requires-feature-of-size` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
-| MMC/LMC on position requires a Feature of Size | `position-material-condition-requires-feature-of-size` | `TOLERANCE` | ASME Y14.5-2018 | ERROR |
-| Runout is always RFS | `runout-always-rfs` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+| Flatness cannot reference datums | `flatness-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
+| Straightness cannot reference datums | `straightness-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
+| Circularity cannot reference datums | `circularity-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
+| Cylindricity cannot reference datums | `cylindricity-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
+| Straightness/flatness MMC only on a Feature of Size | `form-mmc-requires-feature-of-size` | Form | ASME Y14.5-2018 | ERROR |
+| Orientation requires at least one datum | `orientation-requires-datum-reference` | Orientation | ASME Y14.5-2018 | ERROR |
+| Position must reference at least one datum | `position-requires-datum-reference` | Position | ASME Y14.5-2018 | ERROR |
+| Position applies only to a Feature of Size | `position-requires-feature-of-size` | Position | ASME Y14.5-2018 | ERROR |
+| MMC/LMC on position requires a Feature of Size | `position-material-condition-requires-feature-of-size` | Position | ASME Y14.5-2018 | ERROR |
+| Projected tolerance zone requires position | `projected-zone-requires-position` | Position | ASME Y14.5-2018 | ERROR |
+| Runout is always RFS | `runout-always-rfs` | Runout | ASME Y14.5-2018 | ERROR |
+| No duplicate datum references in one FCF | `fcf-duplicate-datum-references` | Datum structure | GENERAL | ERROR |
+| Referenced datums must be defined | `datum-reference-must-be-defined` | Datum structure | GENERAL | ERROR |
+| Concentricity/symmetry are deprecated | `concentricity-symmetry-deprecated` | Standard edition | ASME Y14.5-2018 | WARNING |
 
-**Scope decision**: `position-material-condition-requires-feature-of-size`
-(POS.003, "MMC/LMC only on FOS tolerances" in the roadmap) is scoped to
-`characteristic == POSITION` only, matching its placement in the
-roadmap's position-tolerance tier, rather than generalized across
-every characteristic that can carry a material modifier. This avoids
-overlapping with `form-mmc-requires-feature-of-size` (which already
-owns straightness/flatness); a broader version was out of scope for
-this sprint.
+**Scope note**: `position-material-condition-requires-feature-of-size`
+is deliberately scoped to `characteristic == POSITION` only, rather than
+generalized across every characteristic that can carry a material
+modifier — this avoids overlapping with
+`form-mmc-requires-feature-of-size`, which already owns
+straightness/flatness. A broader, characteristic-agnostic version is a
+candidate for future work.
 
-**Known limitations** (documented per-rule in each module's docstring,
-not guessed around):
+All 14 rules are purely deterministic given the current domain model —
+every field they inspect (`characteristic`, `datum_references`,
+`tolerance.material_condition`, `tolerance.projected_zone_height`,
+`Feature.feature_of_size`) is always present and unambiguous on a
+constructed `Drawing`. There is no "indeterminate" finding concept in
+the architecture (`Severity` has no `UNKNOWN`/`INDETERMINATE` member,
+and `Rule.check` must return a concrete `list[Finding]`); that's future
+work if a rule ever genuinely needs it.
 
-- `concentricity-symmetry-deprecated` is `Severity.WARNING`, not
+### Known limitations
+
+- **`fcf-duplicate-datum-references` is largely unreachable through
+  normal use.** `FeatureControlFrame.datum_references` already has its
+  own Pydantic validator that rejects duplicate labels at construction
+  time, so this rule's fail branch only fires against a `Drawing` tree
+  assembled via `model_construct()` (see
+  `tests/rules/checks/test_duplicate_datum_references.py`), simulating
+  data that bypassed validation. It's kept as defense-in-depth rather
+  than removed, since the rule engine shouldn't have to trust that
+  every `Drawing` it receives was built through the normal, validated
+  path.
+- **`concentricity-symmetry-deprecated` is a `WARNING`, not an
   `ERROR`, because `Drawing` has no field recording which standard
-  *edition* it targets. The rule cannot tell an ASME Y14.5-2018 drawing
-  (where these symbols are removed) from a 2009 one (where they are
-  still valid), so it always fires and says so in the message rather
-  than silently assuming 2018.
-- `form-mmc-requires-feature-of-size`, `position-requires-feature-of-size`,
+  *edition* it targets.** The rule can't distinguish an ASME
+  Y14.5-2018 drawing (where these symbols are removed) from a 2009 one
+  (where they're still valid), so it always fires and says so
+  explicitly in the message rather than silently assuming 2018.
+- **`form-mmc-requires-feature-of-size`, `position-requires-feature-of-size`,
   and `position-material-condition-requires-feature-of-size` all trust
-  `Feature.feature_of_size` as ground truth. It defaults to `False` and
-  is not inferred from `feature_type` or anything else — a genuine
+  `Feature.feature_of_size` as ground truth.** It defaults to `False`
+  and is not inferred from `feature_type` or anything else — a genuine
   Feature of Size left un-flagged in the source data will produce a
   false-positive finding. No heuristic (e.g. guessing FOS-ness from
-  `feature_type in {HOLE, CYLINDER, ...}`) was introduced to paper over
-  this, per this sprint's explicit requirement.
-
-All 14 rules are purely deterministic given the current domain model
-(no genuinely indeterminate case), and there is still no
-"indeterminate" finding concept in the architecture (`Severity` has no
-`UNKNOWN`/`INDETERMINATE` member, and `Rule.check` must return a
-concrete `list[Finding]`) — adding one is future work if a later rule
-genuinely needs it.
+  `feature_type in {HOLE, CYLINDER, ...}`) is used to paper over this.
 
 ## Ingest layer
 
@@ -252,12 +257,13 @@ keep in sync. Enum fields (`feature_type`, `dimension_type`,
 the same lowercase string values as each enum's `.value` (e.g.
 `characteristic: position`, `unit: mm`). Because `GDTBaseModel` sets
 `extra="forbid"`, an unrecognized YAML key is a validation error rather
-than being silently ignored. See `examples/*.yaml` for complete
-drawings and the README for a field-by-field walkthrough.
+than being silently ignored. See `examples/` for complete drawings and
+the README for a field-by-field walkthrough.
 
-**Deliberately not done here**: any non-YAML input format (PDF/DXF/CAD).
-The ingest layer itself still only builds a `Drawing` and never calls
-`RuleEngine` — that wiring lives in the CLI (see "Entry points" below).
+**Deliberately not done here**: any non-YAML input format
+(PDF/DXF/CAD/image). The ingest layer itself only builds a `Drawing`
+and never calls `RuleEngine` — that wiring lives in the CLI (see "Entry
+points" below).
 
 ## Tooling
 
@@ -279,7 +285,7 @@ The ingest layer itself still only builds a `Drawing` and never calls
 `gdt_coach.cli:main` is registered as the `gdt-coach` console script,
 built with `argparse` subparsers.
 
-- `gdt-coach --version` / `gdt-coach --help` — unchanged since Sprint 0.
+- `gdt-coach --version` / `gdt-coach --help`.
 - `gdt-coach check <path> [--category CATEGORY]... [--standard STANDARD] [--json]`
   — the only place in the codebase that wires the ingest layer to the
   rule engine:
@@ -288,17 +294,15 @@ built with `argparse` subparsers.
      caught, printed to stderr, and maps to **exit code 2**.
   2. `--category` (repeatable) and `--standard` are parsed into a
      `set[RuleCategory] | None` and `Standard | None` and passed
-     straight through to the existing `RuleEngine.run(categories=,
-     standard=)` parameters (unchanged since Sprint 2) — the CLI adds
-     no filtering logic of its own beyond converting strings to enum
-     members. An invalid value (not a real category/standard) is
-     caught, an error listing the valid options is printed to stderr,
-     and this also maps to **exit code 2**.
+     straight through to `RuleEngine.run(categories=, standard=)` — the
+     CLI adds no filtering logic of its own beyond converting strings
+     to enum members. An invalid value (not a real category/standard)
+     is caught, an error listing the valid options is printed to
+     stderr, and this also maps to **exit code 2**.
   3. A `RuleRegistry` is built and populated from `ALL_RULE_CLASSES`
      *inside the CLI module* per invocation, not via the shared
      `default_registry` — `check` doesn't depend on what else in the
      process may have imported or cleared the global registry.
-     `RuleEngine` itself is unchanged.
   4. By default, output is the plain-text report: one block per
      finding (rule id, severity, title, message, and any of
      `feature`/`dimension`/`fcf`/`datum` that are set), followed by a
@@ -316,40 +320,36 @@ built with `argparse` subparsers.
 ## Decisions to be made
 
 - Whether `gdt_coach.rules.checks` needs true auto-discovery (e.g.
-  scanning the package for `Rule` subclasses) once hand-maintaining
-  `ALL_RULE_CLASSES` and `checks/__init__.py`'s import list itself
-  becomes tedious — deferred again in Sprint 7 (now 14 rules) as still
-  manageable by hand; revisit once the list is meaningfully larger.
-- Whether/where cross-model referential integrity (dangling
-  `feature_id`, etc.) gets checked — plausibly as rules themselves
-  rather than special-cased in the engine. Sprint 7's
-  `datum-reference-must-be-defined` is exactly this pattern applied to
-  dangling datum labels; the same approach could extend to
-  `Datum.referenced_feature_id` and `FeatureControlFrame.feature_id`.
+  scanning the package for `Rule` subclasses) — deferred as premature
+  at the current rule count; revisit once the hand-maintained list
+  becomes tedious to keep in sync.
+- Whether/where cross-model referential integrity beyond datum labels
+  (dangling `Feature.id`, `Datum.referenced_feature_id`,
+  `FeatureControlFrame.feature_id`) gets checked — plausibly as rules
+  themselves, following the same pattern as
+  `datum-reference-must-be-defined`.
 - A link from `FeatureControlFrame` to the `Dimension`(s) that locate
   or orient it (e.g. `related_dimension_ids: list[str] | None`) — a
-  small model change identified by the Sprint 7 audit that would
-  unlock rules like "position requires basic location dimensions" or
-  "angularity requires a basic angle," neither implementable now
-  without an ambiguous heuristic across multiple dimensions/FCFs on one
-  `Feature`.
+  small model change that would unlock rules like "position requires
+  basic location dimensions" or "angularity requires a basic angle,"
+  neither implementable now without an ambiguous heuristic across
+  multiple dimensions/FCFs on one `Feature`.
 - A composite/multi-segment `FeatureControlFrame` representation — a
-  major model change (also identified by the Sprint 7 audit) needed
-  for any composite-tolerancing rule (e.g. "lower segment tolerance
-  tighter than upper segment"); `FeatureControlFrame` currently has
-  exactly one tolerance and one datum reference list, with no concept
-  of segments at all.
+  larger model change needed for any composite-tolerancing rule (e.g.
+  "lower segment tolerance tighter than upper segment");
+  `FeatureControlFrame` currently has exactly one tolerance and one
+  datum reference list, with no concept of segments at all.
 - Whether `Drawing` should record which standard *edition* it targets.
-  `concentricity-symmetry-deprecated` (Sprint 7) needs this to avoid
-  false positives on drawings intentionally authored to ASME
-  Y14.5-2009 or ISO 1101, and currently works around the gap by using
+  `concentricity-symmetry-deprecated` needs this to avoid false
+  positives on drawings intentionally authored to ASME Y14.5-2009 or
+  ISO 1101, and currently works around the gap by using
   `Severity.WARNING` instead of `ERROR` and saying so in the message.
 - Whether exit code 1 should ever distinguish by severity (e.g. only
   `ERROR`/`CRITICAL` findings fail the process, `WARNING`/`INFO` don't)
   — currently any finding at all produces exit code 1.
-- Markdown/HTML report output (JSON is done as of Sprint 6), for
-  consumption by CI or other tooling instead of the human-readable
-  terminal report.
+- Markdown/HTML report output, for consumption by CI or other tooling
+  instead of the human-readable terminal report (JSON is already
+  supported).
 - A formal JSON Schema (Pydantic can generate one via
   `model_json_schema()`) as an integration contract for `Finding`/
   `Drawing`, once something external actually needs to consume
@@ -361,7 +361,8 @@ built with `argparse` subparsers.
 - A documented policy on paraphrasing vs. quoting ASME Y14.5/ISO 1101
   in rule `explanation` text — no verbatim standard text exists today,
   but nothing currently stops a future rule from copying it in.
-- Other input formats (PDF/DXF/CAD) — explicitly out of scope for now.
+- Other input formats (PDF/DXF/CAD/image) — explicitly out of scope
+  for now.
 - Data storage / persistence approach, if any.
 
 Update this document as real architecture decisions are made.

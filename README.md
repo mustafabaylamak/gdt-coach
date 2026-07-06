@@ -1,37 +1,16 @@
 # gdt-coach
 
-> Domain model, rule engine infrastructure, 14 GD&T rules, a YAML
-> loader, and a CLI `check` command (with filters and JSON output) so
-> far.
+[![CI](https://github.com/mustafabaylamak/gdt-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/mustafabaylamak/gdt-coach/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 
-## Requirements
-
-- Python 3.11+
-
-## Setup
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-pre-commit install
-```
-
-## Usage
+A deterministic rule engine that checks **GD&T (Geometric Dimensioning
+and Tolerancing)** callouts on a drawing against **ASME Y14.5** rules,
+and explains *why* each violation is wrong — not just that the input
+was invalid.
 
 ```bash
-gdt-coach --version
-```
-
-### `gdt-coach check`
-
-Check a YAML drawing against the GD&T rule engine:
-
-```bash
-gdt-coach check examples/invalid_flatness_with_datum.yaml
-```
-
-```
+$ gdt-coach check examples/invalid_flatness_with_datum.yaml
 Checked examples/invalid_flatness_with_datum.yaml -- drawing 'dwg-002' ('Cover Plate')
 Rules run: 14
 
@@ -42,75 +21,91 @@ Rules run: 14
 1 finding(s): 1 error
 ```
 
-Exit codes:
+## Why
 
-| Code | Meaning |
-|---|---|
-| `0` | The drawing loaded and no rule reported a finding. |
-| `1` | The drawing loaded but one or more rules reported a finding. |
-| `2` | The input couldn't be checked: malformed YAML, a missing file, a document that fails `Drawing` validation, or an invalid `--category`/`--standard` value. |
+GD&T is a precise, symbolic language for specifying part geometry and
+tolerances (ASME Y14.5 / ISO 1101). It's also easy to author
+incorrectly in ways that look plausible: a flatness callout that
+references a datum it shouldn't, a position tolerance on a surface
+that isn't a Feature of Size, an MMC modifier on a characteristic that
+must always be RFS. These mistakes are common, well-defined, and
+mechanical to check — which makes them a good fit for an automated,
+deterministic rule engine rather than manual review.
 
-#### Filtering: `--category` / `--standard`
+`gdt-coach` reads a drawing described in YAML, validates it into a
+typed domain model, and runs it against a registry of independent
+rules. Each violation comes back as a structured `Finding` — a rule id,
+a severity, a human-readable explanation, and exactly which feature or
+feature control frame it's about.
 
-Narrow which rules run with `--category` (repeatable) and/or
-`--standard`:
+## Architecture
 
-```bash
-gdt-coach check examples/invalid_flatness_with_datum.yaml --category feature_control_frame
-gdt-coach check examples/valid_position.yaml --standard asme_y14.5_2018
+```mermaid
+flowchart LR
+    A["YAML file"] -->|gdt_coach.ingest| B["Drawing\n(Pydantic model)"]
+    B --> C["RuleEngine.run()"]
+    C -->|"gdt_coach.rules.checks\n(14 rules)"| D["list[Finding]"]
+    D --> E["CLI report\n(text or JSON)"]
 ```
 
-Both map directly onto `RuleEngine.run(categories=, standard=)`. Valid
-values are each enum's `.value` (see
-[enums.py](src/gdt_coach/rules/category.py) and
-[standard.py](src/gdt_coach/rules/standard.py)); an unrecognized value
-prints the valid options and exits with code `2`:
+Four independent layers: a **domain model** (`gdt_coach.models`) that
+knows nothing about GD&T rules, only what data is structurally valid; a
+**rule engine** (`gdt_coach.rules`) that knows nothing about any
+specific rule, only how to run one; 14 **concrete rules**
+(`gdt_coach.rules.checks`), each an independent, self-registering
+module; and a thin **YAML ingest** layer and **CLI** that wire the
+pieces together. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full
+design, including every rule's known limitations.
+
+## Installation
+
+Requires Python 3.11+.
 
 ```bash
-$ gdt-coach check examples/valid_position.yaml --category bogus
-error: invalid --category value ('bogus' is not a valid RuleCategory); valid categories: drawing, feature, datum, dimension, feature_control_frame, tolerance, general
+git clone https://github.com/mustafabaylamak/gdt-coach.git
+cd gdt-coach
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+pre-commit install
 ```
 
-#### `--json`
+## Quick start
 
 ```bash
+gdt-coach --version
+gdt-coach check examples/valid_position.yaml         # exit 0, no findings
+gdt-coach check examples/invalid_flatness_with_datum.yaml  # exit 1, one finding
+```
+
+Narrow which rules run, or get machine-readable output:
+
+```bash
+gdt-coach check examples/valid_position.yaml --category tolerance
 gdt-coach check examples/invalid_projected_zone.yaml --json
 ```
 
-```json
-{
-  "path": "examples/invalid_projected_zone.yaml",
-  "drawing": { "id": "dwg-003", "title": "Threaded Plate" },
-  "rules_run": 14,
-  "findings": [
-    {
-      "rule_id": "projected-zone-requires-position",
-      "title": "Projected tolerance zone requires a position tolerance",
-      "severity": "error",
-      "standard": "asme_y14.5_2018",
-      "category": "tolerance",
-      "message": "feature control frame 'fcf-1' specifies a projected tolerance zone but its characteristic is 'perpendicularity', not position",
-      "feature_id": "feat-hole-1",
-      "dimension_id": null,
-      "fcf_id": "fcf-1",
-      "datum_label": null
-    }
-  ],
-  "summary": { "finding_count": 1, "by_severity": { "error": 1 } }
-}
+See [examples/README.md](examples/README.md) for all five bundled
+example drawings, what each one demonstrates, and their exact output.
+
+Exit codes: `0` no findings, `1` one or more findings, `2` the input
+couldn't be checked (malformed YAML, missing file, failed domain-model
+validation, or an invalid `--category`/`--standard` value).
+
+## Using it as a library
+
+```python
+from gdt_coach.ingest import load_drawing_from_yaml_file
+from gdt_coach.rules import RuleEngine
+import gdt_coach.rules.checks  # noqa: F401  (side effect: registers the rules)
+
+drawing = load_drawing_from_yaml_file("examples/valid_position.yaml")
+findings = RuleEngine().run(drawing)
+for finding in findings:
+    print(finding.severity, finding.title, finding.message)
 ```
 
-`--json` combines with `--category`/`--standard`; exit codes are
-identical between text and JSON output. Errors (load failures, invalid
-filter values) are always plain text on stderr, even with `--json`,
-since there is no report to format when loading fails.
-
-`check` runs the rules from
-[ARCHITECTURE.md#concrete-rules](ARCHITECTURE.md#concrete-rules)
-(filtered by `--category`/`--standard` if given); there is no
-Markdown/HTML output yet.
-
-The GD&T domain model is available as a library:
+Or build a `Drawing` directly, without YAML:
 
 ```python
 from gdt_coach.models import Datum, DatumFeatureType, Drawing, Feature, FeatureType
@@ -123,37 +118,6 @@ drawing = Drawing(
 )
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#domain-model) for what each model
-represents.
-
-Importing `gdt_coach.rules.checks` registers all 14 GD&T rules
-(datum-reference checks, Feature-of-Size checks, a 2018-deprecation
-check, and more — see `ARCHITECTURE.md`) against the shared registry;
-running the engine then checks a drawing against all of them:
-
-```python
-import gdt_coach.rules.checks  # noqa: F401  (side effect: registers the rules)
-from gdt_coach.rules import RuleEngine
-
-findings = RuleEngine().run(drawing)
-for finding in findings:
-    print(finding.severity, finding.title, finding.message)
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md#rule-engine) for how the registry
-and engine fit together, and
-[ARCHITECTURE.md](ARCHITECTURE.md#concrete-rules) for what each of the
-14 rules checks.
-
-A `Drawing` can also be loaded from a YAML file instead of being built
-by hand in Python:
-
-```python
-from gdt_coach.ingest import load_drawing_from_yaml_file
-
-drawing = load_drawing_from_yaml_file("examples/valid_position.yaml")
-```
-
 ### YAML format
 
 The YAML mirrors the domain model directly: each mapping key is a
@@ -164,8 +128,8 @@ use the same lowercase value as the Python enum (e.g.
 `characteristic: position`, `unit: mm`, `feature_type: hole`) — see
 [enums.py](src/gdt_coach/models/enums.py) for every enum's exact
 values. Unknown keys are rejected (the domain model forbids extra
-fields), and every validation rule from Sprint 1 (e.g. a diameter must
-be positive, tolerances can't be negative) still applies to
+fields), and every structural validation rule (a diameter must be
+positive, tolerances can't be negative, and so on) still applies to
 YAML-sourced data.
 
 ```yaml
@@ -184,6 +148,7 @@ features:                   # list[Feature], optional
   - id: feat-hole-1
     feature_type: hole        # hole | cylinder | plane | pin | slot | ...
     quantity: 4                # default: 1
+    feature_of_size: true      # required by several rules -- see Limitations
     dimensions:                 # list[Dimension], optional
       - id: dim-1
         dimension_type: diameter # linear | angular | diameter | radius | ...
@@ -206,12 +171,50 @@ features:                   # list[Feature], optional
           - datum_label: C
 ```
 
-See [examples/](examples/) for three complete drawings:
-`valid_position.yaml` passes every registered rule;
-`invalid_flatness_with_datum.yaml` and `invalid_projected_zone.yaml`
-each load into a perfectly valid `Drawing` but are flagged by one rule
-when the engine runs against them — loading a YAML file never runs the
-rule engine on its own.
+## Project structure
+
+```
+gdt-coach/
+├── src/gdt_coach/
+│   ├── models/        # Pydantic domain model (Drawing, Feature, Datum, ...)
+│   ├── rules/          # rule engine (Rule, Finding, RuleRegistry, RuleEngine)
+│   │   └── checks/     # 14 concrete GD&T rules, one module per rule
+│   ├── ingest/         # YAML loader (YAML -> Drawing)
+│   └── cli.py          # `gdt-coach` command
+├── tests/              # pytest suite, mirrors src/gdt_coach/ layout
+├── examples/           # runnable example drawings (see examples/README.md)
+├── docs/               # reserved for future deep-dive documentation
+├── scripts/            # reserved for maintenance scripts
+└── .github/workflows/  # CI
+```
+
+## Limitations
+
+- **Not a full ASME Y14.5 implementation.** 14 rules exist today; many
+  characteristics, modifiers, and composite-tolerancing scenarios
+  aren't covered yet. See [ROADMAP.md](ROADMAP.md) for what's planned.
+- **Not a CAD system.** There is no geometry engine and no 3D model —
+  only the symbolic GD&T data a drawing's YAML declares.
+- **YAML input only.** No PDF, DXF, image, or native CAD file
+  ingestion.
+- **Some rules depend on data the source YAML must supply correctly.**
+  For example, Feature-of-Size rules trust an explicit
+  `feature_of_size: true/false` flag — it is never inferred from
+  `feature_type`, so an under-declared Feature of Size will produce a
+  false-positive finding. Every such limitation is documented on its
+  rule in [ARCHITECTURE.md](ARCHITECTURE.md#concrete-rules).
+- **Not a certified compliance tool.** A clean `gdt-coach check` run
+  means the implemented rules found no violations — it is not proof of
+  ASME Y14.5 conformance.
+
+See [PROJECT.md](PROJECT.md) for the full goals/non-goals.
+
+## Roadmap
+
+More GD&T rules, a small domain-model addition to support
+"requires a basic dimension"-style rules, and Markdown/HTML report
+output are next. See [ROADMAP.md](ROADMAP.md) for the complete,
+up-to-date list of what's implemented and what's planned.
 
 ## Development
 
@@ -224,38 +227,10 @@ pytest                # test (with coverage)
 
 ## Contributing
 
-- Python 3.11+, fully type-annotated; `mypy --strict` must pass.
-- Formatting and linting are handled by Ruff — run `ruff format .` and
-  `ruff check --fix .` rather than hand-formatting.
-- Prefer `pathlib.Path` over `os.path` (enforced by Ruff's `PTH` rules).
-- New modules need corresponding tests under `tests/`.
-- Before submitting a change, all of the following must pass (CI runs
-  the same checks):
-  ```bash
-  ruff check . && ruff format --check .
-  mypy src
-  pytest
-  ```
-- Avoid force-pushing, amending published commits, or bypassing
-  pre-commit hooks (`--no-verify`) on shared branches.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+conventions, how to add a new rule, and what's expected before opening
+a pull request.
 
-## Project layout
+## License
 
-```
-gdt-coach/
-├── src/gdt_coach/     # importable package (src layout)
-│   ├── models/        # GD&T domain models (Pydantic)
-│   ├── rules/         # rule engine (base class, registry, engine)
-│   │   └── checks/    # concrete GD&T rules, one module per rule
-│   └── ingest/        # YAML loader (YAML -> Drawing)
-├── tests/             # pytest test suite
-├── examples/          # sample YAML drawings (valid and rule-invalid)
-├── docs/              # project documentation
-├── scripts/           # developer/maintenance scripts
-├── .github/workflows/ # CI pipelines
-├── pyproject.toml     # packaging, tool, and dependency config
-└── .pre-commit-config.yaml
-```
-
-See [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md), and
-[ROADMAP.md](ROADMAP.md) for project intent, design, and planned work.
+[MIT](LICENSE) © Mustafa D. Abaylamak

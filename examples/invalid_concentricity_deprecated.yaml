@@ -1,0 +1,28 @@
+# GD&T-invalid (as a warning, not an error): concentricity was removed
+# from ASME Y14.5 in the 2018 edition (see
+# gdt_coach.rules.checks.concentricity_symmetry_deprecated). This file
+# still loads into a valid Drawing and the datum it references is
+# properly defined, so this is the only rule that fires -- and it
+# fires as a WARNING, not an ERROR, since the drawing has no recorded
+# target standard edition (a 2009-edition drawing would still be valid
+# using this symbol).
+id: dwg-004
+title: Sleeve Bearing
+default_unit: mm
+
+datums:
+  - label: A
+    feature_type: axis
+
+features:
+  - id: feat-bore-1
+    feature_type: cylinder
+    feature_of_size: true
+    feature_control_frames:
+      - id: fcf-1
+        characteristic: concentricity
+        tolerance:
+          upper_deviation: 0.05
+          lower_deviation: 0.05
+        datum_references:
+          - datum_label: A

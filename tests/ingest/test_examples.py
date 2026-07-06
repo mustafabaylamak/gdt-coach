@@ -30,6 +30,8 @@ def test_examples_directory_has_the_required_files() -> None:
     assert (_EXAMPLES_DIR / "valid_position.yaml").is_file()
     assert (_EXAMPLES_DIR / "invalid_flatness_with_datum.yaml").is_file()
     assert (_EXAMPLES_DIR / "invalid_projected_zone.yaml").is_file()
+    assert (_EXAMPLES_DIR / "invalid_concentricity_deprecated.yaml").is_file()
+    assert (_EXAMPLES_DIR / "invalid_position_without_feature_of_size.yaml").is_file()
 
 
 def test_valid_position_loads_and_passes_all_rules() -> None:
@@ -54,3 +56,22 @@ def test_invalid_projected_zone_loads_and_is_flagged() -> None:
     findings = _engine_with_all_rules().run(drawing)
 
     assert [finding.rule_id for finding in findings] == ["projected-zone-requires-position"]
+
+
+def test_invalid_concentricity_deprecated_loads_and_is_flagged() -> None:
+    drawing = load_drawing_from_yaml_file(_EXAMPLES_DIR / "invalid_concentricity_deprecated.yaml")
+
+    findings = _engine_with_all_rules().run(drawing)
+
+    assert [finding.rule_id for finding in findings] == ["concentricity-symmetry-deprecated"]
+    assert findings[0].severity.value == "warning"
+
+
+def test_invalid_position_without_feature_of_size_loads_and_is_flagged() -> None:
+    drawing = load_drawing_from_yaml_file(
+        _EXAMPLES_DIR / "invalid_position_without_feature_of_size.yaml"
+    )
+
+    findings = _engine_with_all_rules().run(drawing)
+
+    assert [finding.rule_id for finding in findings] == ["position-requires-feature-of-size"]

@@ -1,138 +1,102 @@
 # ROADMAP.md
 
-## Phase 0 — Scaffold (done)
+## Implemented
 
-- [x] `src` layout package with console script entry point
-- [x] Ruff (lint + format), Mypy (strict), Pytest + coverage
-- [x] pre-commit hooks
-- [x] GitHub Actions CI (lint, type-check, test on 3.11–3.13)
-- [x] Baseline docs (README, PROJECT, ARCHITECTURE, ROADMAP)
+### Project scaffold
 
-## Phase 1 — Define scope
+- `src` layout package with a console script entry point
+- Ruff (lint + format), Mypy (strict), Pytest + coverage
+- pre-commit hooks
+- GitHub Actions CI (lint, type-check, test on Python 3.11–3.13)
 
-- [x] Decide runtime dependencies (Pydantic v2 for domain models)
-- [x] Draft initial architecture in `ARCHITECTURE.md`
-- [ ] Fill in `PROJECT.md` with real goals, users, and success criteria
+### Domain model
 
-## Sprint 1 — Domain model (done)
+- Pydantic v2 models: `Drawing`, `Feature`, `Datum`, `Dimension`,
+  `FeatureControlFrame`, `Tolerance`, plus supporting enumerations
+- Validation limited to structurally impossible data (negative
+  tolerances, zero-diameter holes, duplicate datum labels, mismatched
+  dimension type/unit) — no GD&T interpretation rules at the model
+  level
 
-- [x] Pydantic domain models: `Drawing`, `Feature`, `Datum`, `Dimension`,
-      `FeatureControlFrame`, `Tolerance`, plus supporting enumerations
-- [x] Minimal validation for structurally impossible data only (no GD&T
-      rule logic, no parsing, no rule engine)
-- [x] Comprehensive unit tests (72 tests, 100% coverage on `models/`)
+### Rule engine
 
-## Sprint 2 — Rule engine infrastructure (done)
+- `Rule` abstract base class (`id`, `title`, `severity`, `standard`,
+  `category`, `explanation`, `check()`)
+- `Finding` model, `Severity`/`RuleCategory`/`Standard` enums
+- `RuleRegistry` (register/unregister/get/filter, duplicate-id and
+  missing-metadata validation) and `RuleEngine` (runs registered rules
+  against a `Drawing`, with category/standard filtering)
+- `ALL_RULE_CLASSES` as the single source of truth for which concrete
+  rules exist, used by both the CLI and the test suite
 
-- [x] `Rule` abstract base class (id, title, severity, standard,
-      category, explanation, `check()`)
-- [x] `Finding` model, `Severity`/`RuleCategory`/`Standard` enums
-- [x] `RuleRegistry` (register/unregister/get/filter, duplicate-id and
-      missing-metadata validation) and `RuleEngine` (runs registered
-      rules against a `Drawing`, with category/standard filtering)
-- [x] Comprehensive unit tests (116 tests total, 100% coverage on
-      `rules/`); still no concrete GD&T rules and no YAML parsing
+### GD&T rules (14 total)
 
-## Sprint 3 — First five GD&T rules (done)
+- Form: flatness/straightness/circularity/cylindricity cannot
+  reference datums; straightness/flatness MMC only on a Feature of Size
+- Orientation: requires at least one datum
+- Position: requires a datum reference, requires a Feature of Size,
+  MMC/LMC requires a Feature of Size, projected tolerance zone requires
+  position
+- Runout: always RFS
+- Datum structure: no duplicate datum references in one feature control
+  frame, referenced datums must be defined on the drawing
+- Standard edition: concentricity/symmetry flagged as deprecated under
+  ASME Y14.5-2018
 
-- [x] `gdt_coach.rules.checks` package: one module per rule, each
-      self-registering against `default_registry`
-- [x] Rules: flatness/straightness cannot reference datums, no
-      duplicate datum references in one FCF, position requires a
-      datum reference, projected zone requires position
-- [x] `RuleEngine` unchanged; rules integrate through the existing
-      registry/engine API
-- [x] Comprehensive PASS/FAIL unit tests per rule plus an end-to-end
-      registry+engine integration test (139 tests total, 100% coverage
-      on `rules/checks/`); still no YAML parsing and no CLI wiring
+See `ARCHITECTURE.md#concrete-rules` for the full table with rule IDs,
+categories, and standards, plus documented limitations per rule.
 
-## Sprint 4 — YAML ingest (done)
+### YAML ingest
 
-- [x] `gdt_coach.ingest` package: `load_drawing_from_yaml_string` /
-      `load_drawing_from_yaml_file`, translating YAML directly into
-      `Drawing.model_validate()` with no added GD&T semantics
-- [x] `YamlParseError` / `DrawingValidationError` (`IngestError` base)
-      for malformed YAML vs. domain-model validation failures
-- [x] `examples/`: `valid_position.yaml`,
-      `invalid_flatness_with_datum.yaml`, `invalid_projected_zone.yaml`
-      (the "invalid" ones load into a valid `Drawing` but are flagged
-      by the Sprint 3 rules — ingest and rule-checking stay decoupled)
-- [x] Comprehensive tests (156 tests total, 100% coverage on
-      `ingest/`), including an end-to-end YAML -> Drawing -> RuleEngine
-      test per example; `RuleEngine` unchanged, no CLI wiring
+- `load_drawing_from_yaml_string` / `load_drawing_from_yaml_file`,
+  translating YAML directly into `Drawing.model_validate()` with no
+  added GD&T semantics
+- `YamlParseError` / `DrawingValidationError` (`IngestError` base) for
+  malformed YAML vs. domain-model validation failures
 
-## Sprint 5 — CLI check command (done)
+### CLI
 
-- [x] `gdt-coach check <path>`: loads a YAML drawing via
-      `gdt_coach.ingest`, runs the five Sprint 3 rules through the
-      unchanged `RuleEngine`, and prints a plain-text report (rule id,
-      severity, title, message, and location when available)
-- [x] Exit codes: `0` no findings, `1` one or more findings, `2` YAML
-      load/validation failure (malformed YAML, missing file, or a
-      `Drawing` that fails validation)
-- [x] Comprehensive tests (169 tests total): exit codes for all three
-      example files plus malformed/missing YAML, output-content checks,
-      and direct unit tests of the report formatting helpers
-- [x] `RuleEngine` unchanged; no new GD&T rules; no Markdown/HTML report
+- `gdt-coach check <path>`: loads a YAML drawing, runs the rule engine,
+  and prints a report
+- `--category` (repeatable) / `--standard` filters, delegating directly
+  to `RuleEngine.run(categories=, standard=)`
+- `--json` output mode alongside the default plain-text report
+- Exit codes: `0` no findings, `1` one or more findings, `2` input
+  couldn't be checked (malformed YAML, missing file, failed validation,
+  or an invalid filter value)
 
-## Sprint 6 — Registration hardening + CLI reporting UX (done)
+### Testing
 
-- [x] Single source of truth: `ALL_RULE_CLASSES` tuple exposed from
-      `gdt_coach.rules.checks`, replacing four separate hardcoded
-      rule-class lists (`cli.py`, `test_registration.py`,
-      `test_examples.py`, plus the module's own registration) found
-      during a Sprint 5 architecture review
-- [x] `gdt-coach check` gained `--category` (repeatable) and
-      `--standard` filters, delegating straight to the existing
-      `RuleEngine.run(categories=, standard=)`; invalid values are
-      caught and mapped to exit code 2 with the valid options listed
-- [x] `gdt-coach check --json`: machine-readable report (`path`,
-      `drawing`, `rules_run`, `findings`, `summary`); plain text stays
-      the default; exit codes 0/1/2 unchanged and identical between
-      both output modes
-- [x] Two near-duplicate rule test files (flatness/straightness)
-      collapsed into one parametrized test module as a reusable pattern
-      for future "characteristic X must/must not reference datums"
-      rules
-- [x] Comprehensive tests (180 tests total); `RuleEngine` and domain
-      models unchanged; no new GD&T rules
+- 242 tests, 99% line coverage, run on every push via CI
+- PASS/FAIL coverage for every rule, including documented limitations
+  (e.g. a rule verified against data assembled via `model_construct()`
+  to exercise a branch that normal validation makes otherwise
+  unreachable)
 
-## Sprint 7 — Nine more GD&T rules from an audited roadmap (done)
+## Planned
 
-- [x] An external 30-rule ASME Y14.5 roadmap was audited against the
-      actual domain model (not taken at face value) before implementing
-      anything; several of its claims were found incorrect (e.g. it
-      assumed `Feature.feature_of_size` didn't exist yet -- it has
-      since Sprint 1) or premature (composite tolerancing, DOF
-      accounting -- both need real model/subsystem work, deferred)
-- [x] 8 rules implemented from the audit's "implementable now, zero
-      model changes" recommendation (9 rule files, since the FORM.001
-      extension covers 2 characteristics): referenced datums must be
-      defined, concentricity/symmetry deprecated, circularity/
-      cylindricity cannot reference datums, straightness/flatness MMC
-      only on a Feature of Size, orientation requires a datum, position
-      requires a Feature of Size, MMC/LMC on position requires a
-      Feature of Size, runout is always RFS
-- [x] No heuristics: FOS status is read only from
-      `Feature.feature_of_size`, never guessed from `feature_type`;
-      limitations from missing/unmodeled data (drawing standard
-      edition, FOS under-declaration) are documented in each rule's
-      docstring, not papered over
-- [x] `RuleEngine` and domain models unchanged; `ALL_RULE_CLASSES`
-      (Sprint 6) is still the only place rules are enumerated
-- [x] Comprehensive tests (240 tests total); the Sprint 6 parametrized
-      form-tolerance-no-datum test module was extended (not
-      duplicated) to cover the 2 new characteristics
+- More GD&T rules: additional orientation/form checks, profile,
+  tolerance-value sanity checks
+- A `FeatureControlFrame` → `Dimension` link (small model change) to
+  unlock rules like "position requires basic location dimensions"
+- A composite/multi-segment `FeatureControlFrame` representation
+  (larger model change) to unlock composite-tolerancing rules
+- Markdown/HTML report output for `gdt-coach check` (JSON is done)
+- A documented target standard edition on `Drawing`, to make the
+  concentricity/symmetry deprecation check a hard error instead of a
+  warning where appropriate
 
-## Phase 2 — First business logic
+## Under consideration
 
-- [ ] Small model change: a `FeatureControlFrame` -> `Dimension` link,
-      to unlock "position/angularity requires a basic dimension" rules
-- [ ] Major model change: composite/multi-segment `FeatureControlFrame`
-      representation, to unlock composite-tolerancing rules
-- [ ] Markdown/HTML report output for `gdt-coach check` (JSON done)
+- A formal JSON Schema for `Finding`/`Drawing` as an integration
+  contract, once an external consumer needs one
+- Auto-discovery for `gdt_coach.rules.checks` (scanning for `Rule`
+  subclasses instead of a hand-maintained list), once the rule count
+  makes the current approach unwieldy
+- A versioned wire schema for YAML input, if the domain model changes
+  in ways that would otherwise break existing files
+- Packaging/release process (versioning, changelog, PyPI publishing)
+- Other input formats (PDF/DXF/CAD/image) — a substantial undertaking,
+  not scoped yet
 
-## Later
-
-- [ ] Packaging/release process (versioning, changelog, publishing)
-- [ ] Documentation site (if needed)
+See `PROJECT.md` for goals, non-goals, and success criteria.

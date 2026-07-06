@@ -1,0 +1,39 @@
+name: New GD&T rule request
+description: Propose a new ASME Y14.5 / ISO 1101 rule for the rule engine to check.
+labels: [rule-request]
+body:
+  - type: textarea
+    id: rule
+    attributes:
+      label: What should be checked
+      description: >
+        Describe the rule in your own words (please don't paste verbatim
+        text from the standard — paraphrase it, per this project's
+        copyright policy). Which characteristic(s)/modifier(s) does it
+        apply to?
+    validations:
+      required: true
+
+  - type: input
+    id: standard
+    attributes:
+      label: Standard reference
+      description: e.g. "ASME Y14.5-2018, §9 (orientation)". A section/topic reference is enough — exact clause numbers aren't required.
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example that should fail
+      description: A short YAML snippet (or plain description) of a drawing that should trigger this rule.
+      render: yaml
+
+  - type: textarea
+    id: feasibility
+    attributes:
+      label: Feasibility (optional)
+      description: >
+        If you've looked at `gdt_coach.models`, does the current domain
+        model already have the fields this rule would need, or would it
+        require a model change? Not required, but helpful.

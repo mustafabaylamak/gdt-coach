@@ -1,0 +1,27 @@
+# GD&T-invalid: position tolerance locates the derived center point,
+# axis, or center plane of a Feature of Size -- it cannot apply to a
+# feature that isn't one (see
+# gdt_coach.rules.checks.position_requires_feature_of_size). This
+# feature has a properly-defined datum reference (so
+# position-requires-datum-reference and
+# datum-reference-must-be-defined both pass) but is not marked
+# feature_of_size, so exactly one rule fires.
+id: dwg-005
+title: Locating Slot Plate
+default_unit: mm
+
+datums:
+  - label: A
+    feature_type: plane
+
+features:
+  - id: feat-slot-1
+    feature_type: slot
+    feature_control_frames:
+      - id: fcf-1
+        characteristic: position
+        tolerance:
+          upper_deviation: 0.2
+          lower_deviation: 0.2
+        datum_references:
+          - datum_label: A

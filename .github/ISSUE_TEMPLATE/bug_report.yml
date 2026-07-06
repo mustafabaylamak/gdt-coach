@@ -1,0 +1,46 @@
+name: Bug report
+description: Something doesn't behave the way the documentation says it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: >
+        A minimal YAML drawing (or Python snippet) that reproduces the
+        issue, plus the exact command you ran. The smaller the better —
+        strip out anything not needed to trigger the bug.
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-output
+    attributes:
+      label: Actual output
+      description: Exact output/exit code (`gdt-coach check ... ; echo $?`), or a traceback.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: gdt-coach / Python version
+      description: Output of `gdt-coach --version` and `python --version`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant.

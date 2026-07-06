@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "gdt-coach"
 version = "0.1.0"
-description = "GDT Coach"
+description = "A deterministic rule engine for validating GD&T callouts in ASME Y14.5 drawings"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Mustafa D. Abaylamak" }]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -34,7 +34,9 @@ dev = [
 gdt-coach = "gdt_coach.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mustafad/gdt-coach"
+Homepage = "https://github.com/mustafabaylamak/gdt-coach"
+Repository = "https://github.com/mustafabaylamak/gdt-coach"
+Issues = "https://github.com/mustafabaylamak/gdt-coach/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gdt_coach"]

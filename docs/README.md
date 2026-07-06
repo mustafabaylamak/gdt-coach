@@ -1,5 +1,7 @@
 # Docs
 
-Extended documentation goes here (design notes, ADRs, user guides) once
-there is business logic to document. Top-level project docs live in the
-repo root: `PROJECT.md`, `ARCHITECTURE.md`, `ROADMAP.md`.
+Top-level project documentation lives in the repo root: `README.md`,
+`PROJECT.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CONTRIBUTING.md`. This
+directory is reserved for deeper material once there's enough of it to
+warrant its own space — design notes, ADRs, or a user guide beyond what
+the README covers. Nothing lives here yet.
