@@ -97,10 +97,39 @@
 - [x] Comprehensive tests (180 tests total); `RuleEngine` and domain
       models unchanged; no new GD&T rules
 
+## Sprint 7 — Nine more GD&T rules from an audited roadmap (done)
+
+- [x] An external 30-rule ASME Y14.5 roadmap was audited against the
+      actual domain model (not taken at face value) before implementing
+      anything; several of its claims were found incorrect (e.g. it
+      assumed `Feature.feature_of_size` didn't exist yet -- it has
+      since Sprint 1) or premature (composite tolerancing, DOF
+      accounting -- both need real model/subsystem work, deferred)
+- [x] 8 rules implemented from the audit's "implementable now, zero
+      model changes" recommendation (9 rule files, since the FORM.001
+      extension covers 2 characteristics): referenced datums must be
+      defined, concentricity/symmetry deprecated, circularity/
+      cylindricity cannot reference datums, straightness/flatness MMC
+      only on a Feature of Size, orientation requires a datum, position
+      requires a Feature of Size, MMC/LMC on position requires a
+      Feature of Size, runout is always RFS
+- [x] No heuristics: FOS status is read only from
+      `Feature.feature_of_size`, never guessed from `feature_type`;
+      limitations from missing/unmodeled data (drawing standard
+      edition, FOS under-declaration) are documented in each rule's
+      docstring, not papered over
+- [x] `RuleEngine` and domain models unchanged; `ALL_RULE_CLASSES`
+      (Sprint 6) is still the only place rules are enumerated
+- [x] Comprehensive tests (240 tests total); the Sprint 6 parametrized
+      form-tolerance-no-datum test module was extended (not
+      duplicated) to cover the 2 new characteristics
+
 ## Phase 2 — First business logic
 
-- [ ] More GD&T rules (orientation, form beyond straightness/flatness,
-      runout, profile, tolerance-value sanity checks, ...)
+- [ ] Small model change: a `FeatureControlFrame` -> `Dimension` link,
+      to unlock "position/angularity requires a basic dimension" rules
+- [ ] Major model change: composite/multi-segment `FeatureControlFrame`
+      representation, to unlock composite-tolerancing rules
 - [ ] Markdown/HTML report output for `gdt-coach check` (JSON done)
 
 ## Later

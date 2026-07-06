@@ -1,8 +1,8 @@
 # gdt-coach
 
-> Domain model, rule engine infrastructure, a first set of five GD&T
-> rules, a YAML loader, and a CLI `check` command (with filters and
-> JSON output) so far.
+> Domain model, rule engine infrastructure, 14 GD&T rules, a YAML
+> loader, and a CLI `check` command (with filters and JSON output) so
+> far.
 
 ## Requirements
 
@@ -33,7 +33,7 @@ gdt-coach check examples/invalid_flatness_with_datum.yaml
 
 ```
 Checked examples/invalid_flatness_with_datum.yaml -- drawing 'dwg-002' ('Cover Plate')
-Rules run: 5
+Rules run: 14
 
 [ERROR] flatness-no-datum-references: Flatness cannot reference datums
   flatness feature control frame 'fcf-1' references datum(s) ['A'], but flatness must not reference any datum
@@ -81,7 +81,7 @@ gdt-coach check examples/invalid_projected_zone.yaml --json
 {
   "path": "examples/invalid_projected_zone.yaml",
   "drawing": { "id": "dwg-003", "title": "Threaded Plate" },
-  "rules_run": 5,
+  "rules_run": 14,
   "findings": [
     {
       "rule_id": "projected-zone-requires-position",
@@ -126,10 +126,10 @@ drawing = Drawing(
 See [ARCHITECTURE.md](ARCHITECTURE.md#domain-model) for what each model
 represents.
 
-Importing `gdt_coach.rules.checks` registers the first five GD&T rules
-(datum-reference checks for flatness, straightness, and position, plus
-a projected-tolerance-zone check) against the shared registry; running
-the engine then checks a drawing against all of them:
+Importing `gdt_coach.rules.checks` registers all 14 GD&T rules
+(datum-reference checks, Feature-of-Size checks, a 2018-deprecation
+check, and more — see `ARCHITECTURE.md`) against the shared registry;
+running the engine then checks a drawing against all of them:
 
 ```python
 import gdt_coach.rules.checks  # noqa: F401  (side effect: registers the rules)
@@ -143,7 +143,7 @@ for finding in findings:
 See [ARCHITECTURE.md](ARCHITECTURE.md#rule-engine) for how the registry
 and engine fit together, and
 [ARCHITECTURE.md](ARCHITECTURE.md#concrete-rules) for what each of the
-five rules checks.
+14 rules checks.
 
 A `Drawing` can also be loaded from a YAML file instead of being built
 by hand in Python:
@@ -207,7 +207,7 @@ features:                   # list[Feature], optional
 ```
 
 See [examples/](examples/) for three complete drawings:
-`valid_position.yaml` passes all five Sprint 3 rules;
+`valid_position.yaml` passes every registered rule;
 `invalid_flatness_with_datum.yaml` and `invalid_projected_zone.yaml`
 each load into a perfectly valid `Drawing` but are flagged by one rule
 when the engine runs against them — loading a YAML file never runs the

@@ -1,12 +1,15 @@
 """Parametrized PASS/FAIL tests shared by the "form tolerance cannot
-reference a datum" rules (flatness, straightness).
+reference a datum" rules (flatness, straightness, circularity,
+cylindricity -- all four ASME Y14.5 form tolerances).
 
-Both rules check the exact same shape: a specific
+All four rules check the exact same shape: a specific
 `GeometricCharacteristic` must never carry datum references. Rather
-than two near-identical test files (one per rule), this module runs
-one set of test functions against both via `pytest.mark.parametrize`.
-Adding another form-tolerance-no-datum rule later (e.g. circularity,
-cylindricity) means adding one entry to `_CASES`, not a new test file.
+than four near-identical test files (one per rule), this module runs
+one set of test functions against all of them via
+`pytest.mark.parametrize`. Adding another form-tolerance-no-datum rule
+means adding one entry to `_CASES`, not a new test file -- this is
+exactly the reuse this module was built for in Sprint 6, now exercised
+by Sprint 7's circularity/cylindricity rules (the FORM.001 extension).
 """
 
 from __future__ import annotations
@@ -18,6 +21,12 @@ import pytest
 from gdt_coach.models import Drawing
 from gdt_coach.models.enums import GeometricCharacteristic
 from gdt_coach.rules.base import Rule
+from gdt_coach.rules.checks.circularity_no_datum_references import (
+    CircularityNoDatumReferencesRule,
+)
+from gdt_coach.rules.checks.cylindricity_no_datum_references import (
+    CylindricityNoDatumReferencesRule,
+)
 from gdt_coach.rules.checks.flatness_no_datum_references import FlatnessNoDatumReferencesRule
 from gdt_coach.rules.checks.straightness_no_datum_references import (
     StraightnessNoDatumReferencesRule,
@@ -43,6 +52,16 @@ _CASES = [
         rule_cls=StraightnessNoDatumReferencesRule,
         characteristic=GeometricCharacteristic.STRAIGHTNESS,
         rule_id="straightness-no-datum-references",
+    ),
+    _NoDatumRuleCase(
+        rule_cls=CircularityNoDatumReferencesRule,
+        characteristic=GeometricCharacteristic.CIRCULARITY,
+        rule_id="circularity-no-datum-references",
+    ),
+    _NoDatumRuleCase(
+        rule_cls=CylindricityNoDatumReferencesRule,
+        characteristic=GeometricCharacteristic.CYLINDRICITY,
+        rule_id="cylindricity-no-datum-references",
     ),
 ]
 _CASE_IDS = [case.rule_id for case in _CASES]

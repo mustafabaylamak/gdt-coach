@@ -121,14 +121,14 @@ needs to change for that rule to start running.
 
 ## Concrete rules
 
-`gdt_coach.rules.checks` holds the first five deterministic GD&T rules,
-one module per rule, each self-registering against `default_registry`
-via `@default_registry.register`. Importing `gdt_coach.rules.checks`
-(the package `__init__.py` imports every rule module) is what makes
-that registration happen — importing `gdt_coach.rules` alone still
-does not, so the infrastructure package stays free of any concrete
-rule. This resolves the "where do rules live / how do they get
-imported" question left open after Sprint 2.
+`gdt_coach.rules.checks` holds 14 deterministic GD&T rules (5 from
+Sprint 3, 9 from Sprint 7), one module per rule, each self-registering
+against `default_registry` via `@default_registry.register`. Importing
+`gdt_coach.rules.checks` (the package `__init__.py` imports every rule
+module) is what makes that registration happen — importing
+`gdt_coach.rules` alone still does not, so the infrastructure package
+stays free of any concrete rule. This resolves the "where do rules
+live / how do they get imported" question left open after Sprint 2.
 
 `checks/__init__.py` also exposes `ALL_RULE_CLASSES` — a plain
 `tuple[type[Rule], ...]` listing every rule class. This is the single
@@ -146,6 +146,8 @@ auto-discovery (e.g. scanning the package for `Rule` subclasses);
 that's deferred until the hand-maintained list itself becomes the
 bottleneck.
 
+### Sprint 3 rules
+
 | Rule | id | Category | Standard |
 |---|---|---|---|
 | Flatness cannot reference datums | `flatness-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
@@ -153,16 +155,6 @@ bottleneck.
 | No duplicate datum references in one FCF | `fcf-duplicate-datum-references` | `FEATURE_CONTROL_FRAME` | GENERAL |
 | Position must reference at least one datum | `position-requires-datum-reference` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 |
 | Projected zone requires position | `projected-zone-requires-position` | `TOLERANCE` | ASME Y14.5-2018 |
-
-All five are `Severity.ERROR` and purely deterministic: every field
-they inspect (`characteristic`, `datum_references`,
-`tolerance.projected_zone_height`) is always present and unambiguous
-on a constructed `Drawing`, so none of them has a genuinely
-indeterminate case given the current domain model. There is also no
-"indeterminate" finding concept in the architecture yet (`Severity` has
-no `UNKNOWN`/`INDETERMINATE` member, and `Rule.check` must return a
-concrete `list[Finding]`) — adding one is future work if a later rule
-genuinely needs it.
 
 **Known limitation**: `fcf-duplicate-datum-references` duplicates a
 check the domain model already performs.
@@ -176,6 +168,64 @@ data that bypassed validation (e.g. a future parser optimizing for
 speed). It is kept as defense-in-depth rather than removed, since the
 rule engine should not have to trust that every `Drawing` it ever
 receives was built the "normal" way.
+
+### Sprint 7 rules
+
+Selected from a 30-rule ASME Y14.5 roadmap via an architecture audit
+that checked every proposed rule against the actual domain model (not
+just the roadmap's assumptions) and picked the 8 highest-value items
+implementable with zero model changes and zero heuristics. The
+`FORM.001` roadmap item ("form tolerances take no datums") was already
+half-implemented in Sprint 3 (flatness, straightness); Sprint 7
+completes it with circularity and cylindricity, reusing the Sprint 6
+parametrized test module (`test_form_tolerance_no_datum_rules.py`) for
+all four rather than writing bespoke files.
+
+| Rule | id | Category | Standard | Severity |
+|---|---|---|---|---|
+| Referenced datums must be defined | `datum-reference-must-be-defined` | `FEATURE_CONTROL_FRAME` | GENERAL | ERROR |
+| Concentricity/symmetry deprecated | `concentricity-symmetry-deprecated` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | WARNING |
+| Circularity cannot reference datums | `circularity-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+| Cylindricity cannot reference datums | `cylindricity-no-datum-references` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+| Straightness/flatness MMC only on FOS | `form-mmc-requires-feature-of-size` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+| Orientation requires ≥1 datum | `orientation-requires-datum-reference` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+| Position applies only to a Feature of Size | `position-requires-feature-of-size` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+| MMC/LMC on position requires a Feature of Size | `position-material-condition-requires-feature-of-size` | `TOLERANCE` | ASME Y14.5-2018 | ERROR |
+| Runout is always RFS | `runout-always-rfs` | `FEATURE_CONTROL_FRAME` | ASME Y14.5-2018 | ERROR |
+
+**Scope decision**: `position-material-condition-requires-feature-of-size`
+(POS.003, "MMC/LMC only on FOS tolerances" in the roadmap) is scoped to
+`characteristic == POSITION` only, matching its placement in the
+roadmap's position-tolerance tier, rather than generalized across
+every characteristic that can carry a material modifier. This avoids
+overlapping with `form-mmc-requires-feature-of-size` (which already
+owns straightness/flatness); a broader version was out of scope for
+this sprint.
+
+**Known limitations** (documented per-rule in each module's docstring,
+not guessed around):
+
+- `concentricity-symmetry-deprecated` is `Severity.WARNING`, not
+  `ERROR`, because `Drawing` has no field recording which standard
+  *edition* it targets. The rule cannot tell an ASME Y14.5-2018 drawing
+  (where these symbols are removed) from a 2009 one (where they are
+  still valid), so it always fires and says so in the message rather
+  than silently assuming 2018.
+- `form-mmc-requires-feature-of-size`, `position-requires-feature-of-size`,
+  and `position-material-condition-requires-feature-of-size` all trust
+  `Feature.feature_of_size` as ground truth. It defaults to `False` and
+  is not inferred from `feature_type` or anything else — a genuine
+  Feature of Size left un-flagged in the source data will produce a
+  false-positive finding. No heuristic (e.g. guessing FOS-ness from
+  `feature_type in {HOLE, CYLINDER, ...}`) was introduced to paper over
+  this, per this sprint's explicit requirement.
+
+All 14 rules are purely deterministic given the current domain model
+(no genuinely indeterminate case), and there is still no
+"indeterminate" finding concept in the architecture (`Severity` has no
+`UNKNOWN`/`INDETERMINATE` member, and `Rule.check` must return a
+concrete `list[Finding]`) — adding one is future work if a later rule
+genuinely needs it.
 
 ## Ingest layer
 
@@ -268,11 +318,32 @@ built with `argparse` subparsers.
 - Whether `gdt_coach.rules.checks` needs true auto-discovery (e.g.
   scanning the package for `Rule` subclasses) once hand-maintaining
   `ALL_RULE_CLASSES` and `checks/__init__.py`'s import list itself
-  becomes tedious — deferred again in Sprint 6 as premature at five
-  rules; revisit once the list is meaningfully larger.
+  becomes tedious — deferred again in Sprint 7 (now 14 rules) as still
+  manageable by hand; revisit once the list is meaningfully larger.
 - Whether/where cross-model referential integrity (dangling
   `feature_id`, etc.) gets checked — plausibly as rules themselves
-  rather than special-cased in the engine.
+  rather than special-cased in the engine. Sprint 7's
+  `datum-reference-must-be-defined` is exactly this pattern applied to
+  dangling datum labels; the same approach could extend to
+  `Datum.referenced_feature_id` and `FeatureControlFrame.feature_id`.
+- A link from `FeatureControlFrame` to the `Dimension`(s) that locate
+  or orient it (e.g. `related_dimension_ids: list[str] | None`) — a
+  small model change identified by the Sprint 7 audit that would
+  unlock rules like "position requires basic location dimensions" or
+  "angularity requires a basic angle," neither implementable now
+  without an ambiguous heuristic across multiple dimensions/FCFs on one
+  `Feature`.
+- A composite/multi-segment `FeatureControlFrame` representation — a
+  major model change (also identified by the Sprint 7 audit) needed
+  for any composite-tolerancing rule (e.g. "lower segment tolerance
+  tighter than upper segment"); `FeatureControlFrame` currently has
+  exactly one tolerance and one datum reference list, with no concept
+  of segments at all.
+- Whether `Drawing` should record which standard *edition* it targets.
+  `concentricity-symmetry-deprecated` (Sprint 7) needs this to avoid
+  false positives on drawings intentionally authored to ASME
+  Y14.5-2009 or ISO 1101, and currently works around the gap by using
+  `Severity.WARNING` instead of `ERROR` and saying so in the message.
 - Whether exit code 1 should ever distinguish by severity (e.g. only
   `ERROR`/`CRITICAL` findings fail the process, `WARNING`/`INFO` don't)
   — currently any finding at all produces exit code 1.

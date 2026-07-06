@@ -15,8 +15,8 @@ rather than a hardcoded count, so this test doesn't need editing every
 time a rule is added or removed.
 """
 
-from gdt_coach.models import Drawing, Feature, FeatureType
-from gdt_coach.models.enums import GeometricCharacteristic
+from gdt_coach.models import Datum, Drawing, Feature, FeatureType
+from gdt_coach.models.enums import DatumFeatureType, GeometricCharacteristic
 from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.engine import RuleEngine
 from gdt_coach.rules.registry import RuleRegistry, default_registry
@@ -46,7 +46,15 @@ def test_all_rules_have_non_empty_explanations() -> None:
 
 
 def test_rule_engine_runs_all_rules_end_to_end() -> None:
-    """RuleEngine (unchanged since Sprint 2) drives every registered rule."""
+    """RuleEngine (unchanged since Sprint 2) drives every registered rule.
+
+    The feature is marked `feature_of_size=True` and datums A/B are
+    defined so this drawing is otherwise clean with respect to the
+    Sprint 7 rules (position-requires-feature-of-size,
+    datum-reference-must-be-defined, etc.) -- isolating exactly the
+    three originally-intended violations below. Coverage for the
+    Sprint 7 rules themselves lives in their own test modules.
+    """
     registry = RuleRegistry()
     for rule_cls in ALL_RULE_CLASSES:
         registry.register(rule_cls)
@@ -75,9 +83,14 @@ def test_rule_engine_runs_all_rules_end_to_end() -> None:
     feature = Feature(
         id="feat-1",
         feature_type=FeatureType.HOLE,
+        feature_of_size=True,
         feature_control_frames=[bad_flatness, bad_position, bad_projected, good_position],
     )
-    drawing = Drawing(id="dwg-1", title="Integration drawing", features=[feature])
+    datums = [
+        Datum(label="A", feature_type=DatumFeatureType.PLANE),
+        Datum(label="B", feature_type=DatumFeatureType.PLANE),
+    ]
+    drawing = Drawing(id="dwg-1", title="Integration drawing", features=[feature], datums=datums)
 
     findings = RuleEngine(registry=registry).run(drawing)
 

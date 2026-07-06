@@ -16,14 +16,39 @@ touching this file and the rule's own module.
 """
 
 from gdt_coach.rules.base import Rule
+from gdt_coach.rules.checks.circularity_no_datum_references import (
+    CircularityNoDatumReferencesRule,
+)
+from gdt_coach.rules.checks.concentricity_symmetry_deprecated import (
+    ConcentricitySymmetryDeprecatedRule,
+)
+from gdt_coach.rules.checks.cylindricity_no_datum_references import (
+    CylindricityNoDatumReferencesRule,
+)
+from gdt_coach.rules.checks.datum_reference_must_be_defined import (
+    DatumReferenceMustBeDefinedRule,
+)
 from gdt_coach.rules.checks.duplicate_datum_references import DuplicateDatumReferencesRule
 from gdt_coach.rules.checks.flatness_no_datum_references import FlatnessNoDatumReferencesRule
+from gdt_coach.rules.checks.form_mmc_requires_feature_of_size import (
+    FormMmcRequiresFeatureOfSizeRule,
+)
+from gdt_coach.rules.checks.orientation_requires_datum_reference import (
+    OrientationRequiresDatumReferenceRule,
+)
+from gdt_coach.rules.checks.position_material_condition_requires_feature_of_size import (
+    PositionMaterialConditionRequiresFeatureOfSizeRule,
+)
 from gdt_coach.rules.checks.position_requires_datum_reference import (
     PositionRequiresDatumReferenceRule,
+)
+from gdt_coach.rules.checks.position_requires_feature_of_size import (
+    PositionRequiresFeatureOfSizeRule,
 )
 from gdt_coach.rules.checks.projected_zone_requires_position import (
     ProjectedZoneRequiresPositionRule,
 )
+from gdt_coach.rules.checks.runout_always_rfs import RunoutAlwaysRfsRule
 from gdt_coach.rules.checks.straightness_no_datum_references import (
     StraightnessNoDatumReferencesRule,
 )
@@ -31,16 +56,34 @@ from gdt_coach.rules.checks.straightness_no_datum_references import (
 ALL_RULE_CLASSES: tuple[type[Rule], ...] = (
     FlatnessNoDatumReferencesRule,
     StraightnessNoDatumReferencesRule,
+    CircularityNoDatumReferencesRule,
+    CylindricityNoDatumReferencesRule,
     DuplicateDatumReferencesRule,
     PositionRequiresDatumReferenceRule,
     ProjectedZoneRequiresPositionRule,
+    DatumReferenceMustBeDefinedRule,
+    ConcentricitySymmetryDeprecatedRule,
+    FormMmcRequiresFeatureOfSizeRule,
+    OrientationRequiresDatumReferenceRule,
+    PositionRequiresFeatureOfSizeRule,
+    PositionMaterialConditionRequiresFeatureOfSizeRule,
+    RunoutAlwaysRfsRule,
 )
 
 __all__ = [
     "ALL_RULE_CLASSES",
+    "CircularityNoDatumReferencesRule",
+    "ConcentricitySymmetryDeprecatedRule",
+    "CylindricityNoDatumReferencesRule",
+    "DatumReferenceMustBeDefinedRule",
     "DuplicateDatumReferencesRule",
     "FlatnessNoDatumReferencesRule",
+    "FormMmcRequiresFeatureOfSizeRule",
+    "OrientationRequiresDatumReferenceRule",
+    "PositionMaterialConditionRequiresFeatureOfSizeRule",
     "PositionRequiresDatumReferenceRule",
+    "PositionRequiresFeatureOfSizeRule",
     "ProjectedZoneRequiresPositionRule",
+    "RunoutAlwaysRfsRule",
     "StraightnessNoDatumReferencesRule",
 ]

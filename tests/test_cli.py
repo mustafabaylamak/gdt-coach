@@ -201,7 +201,7 @@ def test_check_category_filter_excludes_non_matching_rule(
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Rules run: 1" in out
+    assert "Rules run: 2" in out  # TOLERANCE category: projected-zone-requires-position + POS.003
     assert "No findings." in out
 
 
@@ -226,7 +226,7 @@ def test_check_category_filter_is_repeatable(capsys: pytest.CaptureFixture[str])
 
     assert exit_code == 1
     out = capsys.readouterr().out
-    assert "Rules run: 5" in out
+    assert "Rules run: 14" in out  # union of both categories covers every rule
 
 
 def test_check_standard_filter_narrows_rules_run(capsys: pytest.CaptureFixture[str]) -> None:
@@ -236,7 +236,8 @@ def test_check_standard_filter_narrows_rules_run(capsys: pytest.CaptureFixture[s
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Rules run: 1" in out
+    # GENERAL standard: fcf-duplicate-datum-references + datum-reference-must-be-defined
+    assert "Rules run: 2" in out
 
 
 def test_check_invalid_category_exits_two_with_stderr_message(
@@ -278,7 +279,7 @@ def test_check_json_output_is_valid_json(capsys: pytest.CaptureFixture[str]) -> 
     payload = json.loads(capsys.readouterr().out)
     assert payload["path"] == str(path)
     assert payload["drawing"] == {"id": "dwg-003", "title": "Threaded Plate"}
-    assert payload["rules_run"] == 5
+    assert payload["rules_run"] == 14
     assert payload["summary"] == {"finding_count": 1, "by_severity": {"error": 1}}
     assert len(payload["findings"]) == 1
     finding = payload["findings"][0]
@@ -307,7 +308,7 @@ def test_check_json_output_respects_category_filter(capsys: pytest.CaptureFixtur
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["rules_run"] == 1
+    assert payload["rules_run"] == 2  # TOLERANCE: projected-zone-requires-position + POS.003
     assert payload["findings"] == []
 
 
