@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from gdt_coach.models import Datum, Dimension, Drawing, Feature, FeatureType
-from gdt_coach.models.enums import DimensionType, GeometricCharacteristic, MaterialCondition, Unit
+from gdt_coach.models.enums import (
+    DimensionRole,
+    DimensionType,
+    GeometricCharacteristic,
+    MaterialCondition,
+    Unit,
+)
 from gdt_coach.models.feature_control_frame import DatumReference, FeatureControlFrame
 from gdt_coach.models.tolerance import Tolerance
 
@@ -56,6 +62,7 @@ def make_dimension(
     unit: Unit = Unit.MILLIMETER,
     tolerance: Tolerance | None = None,
     is_reference: bool = False,
+    role: DimensionRole = DimensionRole.OTHER,
 ) -> Dimension:
     return Dimension(
         id=dimension_id,
@@ -64,6 +71,7 @@ def make_dimension(
         unit=unit,
         tolerance=tolerance,
         is_reference=is_reference,
+        role=role,
     )
 
 

@@ -29,7 +29,7 @@
 - `ALL_RULE_CLASSES` as the single source of truth for which concrete
   rules exist, used by both the CLI and the test suite
 
-### GD&T rules (18 total)
+### GD&T rules (20 total)
 
 - Form: flatness/straightness/circularity/cylindricity cannot
   reference datums; straightness/flatness MMC only on a Feature of Size
@@ -46,6 +46,8 @@
   feature, position-related dimensions must be basic, related
   dimensions must not be reference dimensions, angularity-related
   dimensions must be angular
+- Dimension role: position-related dimensions must have role LOCATION,
+  angularity-related dimensions must have role ORIENTATION
 
 See `ARCHITECTURE.md#concrete-rules` for the full table with rule IDs,
 categories, and standards, plus documented limitations per rule.
@@ -71,7 +73,7 @@ categories, and standards, plus documented limitations per rule.
 
 ### Testing
 
-- 279 tests, 99% line coverage, run on every push via CI
+- 310 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -107,19 +109,35 @@ categories, and standards, plus documented limitations per rule.
   not be a reference (for-information-only) dimension
 - `angularity-related-dimension-must-be-angular`: an angularity FCF's
   related dimensions must be angular dimensions
-- All four skip dimension ids that don't resolve rather than guessing
+- `position-related-dimension-must-be-location`: a position FCF's
+  related dimensions must have role `LOCATION`
+- `angularity-related-dimension-must-be-orientation`: an angularity
+  FCF's related dimensions must have role `ORIENTATION`
+- All six skip dimension ids that don't resolve rather than guessing
   about a dimension that may not exist; `related-dimension-must-be-defined`
   is the rule responsible for reporting those
+
+### `Dimension.role`
+
+- `Dimension.role: DimensionRole`, default `DimensionRole.OTHER`,
+  declaring what a dimension is used for: `SIZE`, `LOCATION`,
+  `ORIENTATION`, or `OTHER`
+- Deliberately excludes a `REFERENCE` member — `Dimension.is_reference`
+  already owns that signal, so the two fields never need to be kept in
+  sync with each other
+- Never inferred from `dimension_type`: an `ANGULAR` dimension isn't
+  automatically `ORIENTATION`, a `DIAMETER` dimension isn't
+  automatically `SIZE` — an un-classified dimension defaults to `OTHER`
+  rather than being guessed
+- Backward-compatible: optional field with a concrete default, so every
+  existing YAML/JSON `Dimension` still validates unchanged
+- See `ARCHITECTURE.md#dimension-role` for the full design and why it's
+  a separate field from `dimension_type` and `is_reference`
 
 ## Planned
 
 - More GD&T rules: additional orientation/form checks, profile,
   tolerance-value sanity checks
-- A `Dimension` role/location field (e.g. `is_location: bool`,
-  mirroring the existing `is_reference: bool`) to unlock "position
-  requires at least one basic **location** dimension" — currently
-  blocked because a `LINEAR` dimension is ambiguously either a size or
-  a location dimension, and nothing on `Dimension` disambiguates them
 - A composite/multi-segment `FeatureControlFrame` representation
   (larger model change) to unlock composite-tolerancing rules
 - Markdown/HTML report output for `gdt-coach check` (JSON is done)

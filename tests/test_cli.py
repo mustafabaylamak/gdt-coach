@@ -282,7 +282,7 @@ def test_check_json_output_is_valid_json(capsys: pytest.CaptureFixture[str]) -> 
     payload = json.loads(capsys.readouterr().out)
     assert payload["path"] == str(path)
     assert payload["drawing"] == {"id": "dwg-003", "title": "Threaded Plate"}
-    assert payload["rules_run"] == 18
+    assert payload["rules_run"] == 20
     assert payload["summary"] == {"finding_count": 1, "by_severity": {"error": 1}}
     assert len(payload["findings"]) == 1
     finding = payload["findings"][0]

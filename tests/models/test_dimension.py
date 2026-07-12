@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from gdt_coach.models.dimension import Dimension
-from gdt_coach.models.enums import DimensionType, Unit
+from gdt_coach.models.enums import DimensionRole, DimensionType, Unit
 from gdt_coach.models.tolerance import Tolerance
 
 
@@ -165,3 +165,88 @@ def test_extra_fields_rejected() -> None:
             unit=Unit.MILLIMETER,
             bogus_field=1,
         )
+
+
+def test_default_role_is_other() -> None:
+    dimension = Dimension(
+        id="dim-15",
+        dimension_type=DimensionType.LINEAR,
+        nominal_value=10.0,
+        unit=Unit.MILLIMETER,
+    )
+
+    assert dimension.role == DimensionRole.OTHER
+
+
+@pytest.mark.parametrize("role", list(DimensionRole))
+def test_each_role_value_accepted(role: DimensionRole) -> None:
+    dimension = Dimension(
+        id="dim-16",
+        dimension_type=DimensionType.LINEAR,
+        nominal_value=10.0,
+        unit=Unit.MILLIMETER,
+        role=role,
+    )
+
+    assert dimension.role == role
+
+
+def test_invalid_role_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Dimension(
+            id="dim-17",
+            dimension_type=DimensionType.LINEAR,
+            nominal_value=10.0,
+            unit=Unit.MILLIMETER,
+            role="reference",
+        )
+
+
+def test_role_not_inferred_from_dimension_type() -> None:
+    # An ANGULAR dimension does not automatically get role=ORIENTATION,
+    # and a DIAMETER dimension does not automatically get role=SIZE --
+    # role is only ever what's explicitly declared.
+    angular_dimension = Dimension(
+        id="dim-18",
+        dimension_type=DimensionType.ANGULAR,
+        nominal_value=45.0,
+        unit=Unit.DEGREE,
+    )
+    diameter_dimension = Dimension(
+        id="dim-19",
+        dimension_type=DimensionType.DIAMETER,
+        nominal_value=10.0,
+        unit=Unit.MILLIMETER,
+    )
+
+    assert angular_dimension.role == DimensionRole.OTHER
+    assert diameter_dimension.role == DimensionRole.OTHER
+
+
+def test_role_and_is_reference_are_independent() -> None:
+    dimension = Dimension(
+        id="dim-20",
+        dimension_type=DimensionType.LINEAR,
+        nominal_value=10.0,
+        unit=Unit.MILLIMETER,
+        role=DimensionRole.SIZE,
+        is_reference=True,
+    )
+
+    assert dimension.role == DimensionRole.SIZE
+    assert dimension.is_reference is True
+
+
+def test_existing_yaml_shape_without_role_still_loads_unchanged() -> None:
+    # Simulates a Dimension parsed from YAML/JSON authored before role
+    # existed: no `role` key at all.
+    dimension = Dimension.model_validate(
+        {
+            "id": "dim-21",
+            "dimension_type": "diameter",
+            "nominal_value": 10.0,
+            "unit": "mm",
+        }
+    )
+
+    assert dimension.role == DimensionRole.OTHER

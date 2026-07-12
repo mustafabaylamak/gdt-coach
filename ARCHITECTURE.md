@@ -23,7 +23,7 @@ list[Finding]  ──────────────────►   gdt_c
 - **Rule engine** (`gdt_coach.rules`) — infrastructure for defining and
   running rules against a `Drawing`. Knows nothing about any specific
   rule.
-- **Concrete rules** (`gdt_coach.rules.checks`) — 18 deterministic ASME
+- **Concrete rules** (`gdt_coach.rules.checks`) — 20 deterministic ASME
   Y14.5 rules, each a small, independent module.
 - **Ingest** (`gdt_coach.ingest`) — loads a `Drawing` from YAML. No other
   input format is supported yet.
@@ -80,7 +80,8 @@ based on ASME Y14.5 concepts:
 - `Dimension` — a nominal value with a unit and an optional `Tolerance`
   (absence of a tolerance means the dimension is basic/theoretically
   exact). Cross-checks type/unit/value consistency (e.g. an angular
-  dimension must use degrees; a diameter must be positive).
+  dimension must use degrees; a diameter must be positive). Also
+  carries `role: DimensionRole` (see "Dimension role" below).
 - `FeatureControlFrame` — characteristic symbol + `Tolerance` + ordered
   `DatumReference` list (a small nested model pairing a datum label
   with its own material condition modifier), plus common frame
@@ -93,7 +94,8 @@ based on ASME Y14.5 concepts:
   condition, and optional projected-zone height.
 - `enums.py` — `GeometricCharacteristic` (the 14 ASME symbols),
   `MaterialCondition`, `DatumFeatureType`, `FeatureType`,
-  `DimensionType`, `ToleranceZoneShape`, `Unit`. All are `enum.StrEnum`.
+  `DimensionType`, `DimensionRole`, `ToleranceZoneShape`, `Unit`. All
+  are `enum.StrEnum`.
 
 All models inherit `GDTBaseModel` (`models/base.py`), which forbids
 unknown fields and re-validates on attribute assignment
@@ -138,16 +140,59 @@ each have their own `dim-1`, and resolution never looks outside the
 owning feature, so a cross-feature collision is not this model's
 concern.
 
-This field now backs four rules (added in Sprint 9) —
-`related-dimension-must-be-defined`,
+This field now backs six rules — the four added in Sprint 9
+(`related-dimension-must-be-defined`,
 `position-related-dimension-must-be-basic`,
-`related-dimension-must-not-be-reference`, and
-`angularity-related-dimension-must-be-angular` — see "Concrete rules"
-below. It does not yet unlock "position requires at least one basic
-*location* dimension": there is still no field on `Dimension`
-distinguishing a location dimension from a size dimension (a `LINEAR`
-dimension is ambiguously either), so that rule remains blocked pending
-a `Dimension` role/location field. See ROADMAP.md.
+`related-dimension-must-not-be-reference`,
+`angularity-related-dimension-must-be-angular`) and the two added in
+Sprint 10 (`position-related-dimension-must-be-location`,
+`angularity-related-dimension-must-be-orientation`) — see "Concrete
+rules" below.
+
+### Dimension role
+
+`Dimension.role: DimensionRole` (default: `DimensionRole.OTHER`)
+declares what a dimension is *used for* — `SIZE`, `LOCATION`,
+`ORIENTATION`, or `OTHER` (unclassified). It answers a different
+question than the fields already on `Dimension`:
+
+- `dimension_type` describes the *numeric shape* of the value
+  (`linear`, `angular`, `diameter`, ...) — a `LINEAR` dimension is
+  ambiguously either a size (e.g. a slot width) or a location (e.g. a
+  hole-to-datum distance), and nothing about its type resolves that.
+- `is_reference` marks a dimension as informational-only, independent
+  of what it's *for*. A reference dimension can still conceptually be
+  a size, location, or orientation restatement.
+- `role` is the only field that answers "what is this dimension for,"
+  and it is never inferred from the other two — an `ANGULAR` dimension
+  does not automatically become `role=ORIENTATION`, and a `DIAMETER`
+  dimension does not automatically become `role=SIZE`. Defaulting to
+  `OTHER` (not inferring, not a nullable "unknown" state) matches the
+  same "trust explicit flags, never guess" pattern already used by
+  `feature_of_size` and `is_reference` — an un-classified dimension
+  produces a false negative on role-based rules, never a false
+  positive, and that limitation is accepted rather than papered over
+  with a heuristic.
+
+**`DimensionRole` deliberately excludes a `REFERENCE` member.**
+`Dimension.is_reference` already owns that signal; adding a
+`role=REFERENCE` alternative would create two fields that could
+disagree about the same fact (e.g. `is_reference=True` but
+`role=SIZE`) for no new capability — `related-dimension-must-not-be-reference`
+already handles the "is this reference dimension related" question
+independently of role.
+
+This field backs two rules (Sprint 10):
+`position-related-dimension-must-be-location` and
+`angularity-related-dimension-must-be-orientation` — see "Concrete
+rules" below. Each is a semantic-role check, intentionally kept
+separate from its `dimension_type`/`is_basic`-based sibling rule
+(`angularity-related-dimension-must-be-angular` and
+`position-related-dimension-must-be-basic` respectively): a dimension
+can be basic without being a location dimension, and can be angular
+without being intended as this FCF's orientation angle, so the two
+kinds of check evaluate genuinely different facts and neither is
+redundant with the other.
 
 ### Validation philosophy
 
@@ -206,7 +251,7 @@ needs to change for that rule to start running.
 
 ## Concrete rules
 
-`gdt_coach.rules.checks` holds 18 deterministic GD&T rules, one module
+`gdt_coach.rules.checks` holds 20 deterministic GD&T rules, one module
 per rule, each self-registering against `default_registry` via
 `@default_registry.register`. Importing `gdt_coach.rules.checks` (the
 package `__init__.py` imports every rule module) is what makes that
@@ -255,6 +300,8 @@ rather than approximated with a heuristic.
 | Position-related dimensions must be basic | `position-related-dimension-must-be-basic` | Dimension | ASME Y14.5-2018 | ERROR |
 | Related dimensions must not be reference dimensions | `related-dimension-must-not-be-reference` | Dimension | GENERAL | ERROR |
 | Angularity-related dimensions must be angular | `angularity-related-dimension-must-be-angular` | Dimension | ASME Y14.5-2018 | ERROR |
+| Position-related dimensions must be location dimensions | `position-related-dimension-must-be-location` | Dimension | ASME Y14.5-2018 | ERROR |
+| Angularity-related dimensions must be orientation dimensions | `angularity-related-dimension-must-be-orientation` | Dimension | ASME Y14.5-2018 | ERROR |
 
 **Scope note**: `position-material-condition-requires-feature-of-size`
 is deliberately scoped to `characteristic == POSITION` only, rather than
@@ -264,13 +311,13 @@ modifier — this avoids overlapping with
 straightness/flatness. A broader, characteristic-agnostic version is a
 candidate for future work.
 
-All 18 rules are purely deterministic given the current domain model —
+All 20 rules are purely deterministic given the current domain model —
 every field they inspect (`characteristic`, `datum_references`,
 `tolerance.material_condition`, `tolerance.projected_zone_height`,
 `Feature.feature_of_size`, `related_dimension_ids`, `Dimension.is_basic`,
-`Dimension.is_reference`, `Dimension.dimension_type`) is always present
-and unambiguous on a constructed `Drawing`. There is no "indeterminate"
-finding concept in
+`Dimension.is_reference`, `Dimension.dimension_type`, `Dimension.role`)
+is always present and unambiguous on a constructed `Drawing`. There is
+no "indeterminate" finding concept in
 the architecture (`Severity` has no `UNKNOWN`/`INDETERMINATE` member,
 and `Rule.check` must return a concrete `list[Finding]`); that's future
 work if a rule ever genuinely needs it.
@@ -301,16 +348,26 @@ work if a rule ever genuinely needs it.
   false-positive finding. No heuristic (e.g. guessing FOS-ness from
   `feature_type in {HOLE, CYLINDER, ...}`) is used to paper over this.
 - **`position-related-dimension-must-be-basic`,
-  `related-dimension-must-not-be-reference`, and
-  `angularity-related-dimension-must-be-angular` all silently skip
+  `related-dimension-must-not-be-reference`,
+  `angularity-related-dimension-must-be-angular`,
+  `position-related-dimension-must-be-location`, and
+  `angularity-related-dimension-must-be-orientation` all silently skip
   unresolved dimension ids** rather than reporting anything about them.
   An id in `related_dimension_ids` with no matching `Dimension` on the
   owning feature is `related-dimension-must-be-defined`'s problem to
   report, not theirs — evaluating a non-existent dimension's
-  `is_basic`/`is_reference`/`dimension_type` would mean guessing, which
-  this codebase's rules never do. Run all four rules together (as the
+  `is_basic`/`is_reference`/`dimension_type`/`role` would mean guessing,
+  which this codebase's rules never do. Run all rules together (as the
   CLI does by default) to get complete coverage of a related-dimension
   problem.
+- **`position-related-dimension-must-be-location` and
+  `angularity-related-dimension-must-be-orientation` trust
+  `Dimension.role` as ground truth.** It defaults to `OTHER` and is
+  never inferred from `dimension_type` — a genuine location or
+  orientation dimension left un-classified in the source data will
+  produce a false-positive finding, the same trade-off already accepted
+  for `Feature.feature_of_size`. No heuristic (e.g. treating every
+  `LINEAR` dimension as `LOCATION`) is used to paper over this.
 
 ## Ingest layer
 
@@ -409,15 +466,6 @@ built with `argparse` subparsers.
   checked — plausibly as rules themselves, following the same pattern
   as `datum-reference-must-be-defined` and (as of Sprint 9)
   `related-dimension-must-be-defined`.
-- A `Dimension` role/location field (e.g. `is_location: bool`,
-  mirroring the existing `is_reference: bool`) — the single largest
-  remaining unlock identified after Sprint 9: without it, "position
-  requires at least one basic location dimension" cannot be written,
-  because a `LINEAR` dimension is ambiguously either a size dimension
-  or a location dimension and nothing on `Dimension` disambiguates the
-  two. Deliberately deferred past Sprint 9 as a real domain-modeling
-  decision rather than folded into a sprint scoped around "no
-  architecture changes."
 - A composite/multi-segment `FeatureControlFrame` representation — a
   larger model change needed for any composite-tolerancing rule (e.g.
   "lower segment tolerance tighter than upper segment");

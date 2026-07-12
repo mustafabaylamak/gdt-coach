@@ -12,6 +12,7 @@ from gdt_coach.models.dimension import Dimension
 from gdt_coach.models.drawing import Drawing
 from gdt_coach.models.enums import (
     DatumFeatureType,
+    DimensionRole,
     DimensionType,
     FeatureType,
     GeometricCharacteristic,
@@ -28,6 +29,7 @@ __all__ = [
     "DatumFeatureType",
     "DatumReference",
     "Dimension",
+    "DimensionRole",
     "DimensionType",
     "Drawing",
     "Feature",

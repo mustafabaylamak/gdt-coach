@@ -19,6 +19,9 @@ from gdt_coach.rules.base import Rule
 from gdt_coach.rules.checks.angularity_related_dimension_must_be_angular import (
     AngularityRelatedDimensionMustBeAngularRule,
 )
+from gdt_coach.rules.checks.angularity_related_dimension_must_be_orientation import (
+    AngularityRelatedDimensionMustBeOrientationRule,
+)
 from gdt_coach.rules.checks.circularity_no_datum_references import (
     CircularityNoDatumReferencesRule,
 )
@@ -44,6 +47,9 @@ from gdt_coach.rules.checks.position_material_condition_requires_feature_of_size
 )
 from gdt_coach.rules.checks.position_related_dimension_must_be_basic import (
     PositionRelatedDimensionMustBeBasicRule,
+)
+from gdt_coach.rules.checks.position_related_dimension_must_be_location import (
+    PositionRelatedDimensionMustBeLocationRule,
 )
 from gdt_coach.rules.checks.position_requires_datum_reference import (
     PositionRequiresDatumReferenceRule,
@@ -84,11 +90,14 @@ ALL_RULE_CLASSES: tuple[type[Rule], ...] = (
     PositionRelatedDimensionMustBeBasicRule,
     RelatedDimensionMustNotBeReferenceRule,
     AngularityRelatedDimensionMustBeAngularRule,
+    PositionRelatedDimensionMustBeLocationRule,
+    AngularityRelatedDimensionMustBeOrientationRule,
 )
 
 __all__ = [
     "ALL_RULE_CLASSES",
     "AngularityRelatedDimensionMustBeAngularRule",
+    "AngularityRelatedDimensionMustBeOrientationRule",
     "CircularityNoDatumReferencesRule",
     "ConcentricitySymmetryDeprecatedRule",
     "CylindricityNoDatumReferencesRule",
@@ -99,6 +108,7 @@ __all__ = [
     "OrientationRequiresDatumReferenceRule",
     "PositionMaterialConditionRequiresFeatureOfSizeRule",
     "PositionRelatedDimensionMustBeBasicRule",
+    "PositionRelatedDimensionMustBeLocationRule",
     "PositionRequiresDatumReferenceRule",
     "PositionRequiresFeatureOfSizeRule",
     "ProjectedZoneRequiresPositionRule",

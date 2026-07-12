@@ -12,7 +12,7 @@ was invalid.
 ```bash
 $ gdt-coach check examples/invalid_flatness_with_datum.yaml
 Checked examples/invalid_flatness_with_datum.yaml -- drawing 'dwg-002' ('Cover Plate')
-Rules run: 18
+Rules run: 20
 
 [ERROR] flatness-no-datum-references: Flatness cannot reference datums
   flatness feature control frame 'fcf-1' references datum(s) ['A'], but flatness must not reference any datum
@@ -44,14 +44,14 @@ feature control frame it's about.
 flowchart LR
     A["YAML file"] -->|gdt_coach.ingest| B["Drawing\n(Pydantic model)"]
     B --> C["RuleEngine.run()"]
-    C -->|"gdt_coach.rules.checks\n(18 rules)"| D["list[Finding]"]
+    C -->|"gdt_coach.rules.checks\n(20 rules)"| D["list[Finding]"]
     D --> E["CLI report\n(text or JSON)"]
 ```
 
 Four independent layers: a **domain model** (`gdt_coach.models`) that
 knows nothing about GD&T rules, only what data is structurally valid; a
 **rule engine** (`gdt_coach.rules`) that knows nothing about any
-specific rule, only how to run one; 18 **concrete rules**
+specific rule, only how to run one; 20 **concrete rules**
 (`gdt_coach.rules.checks`), each an independent, self-registering
 module; and a thin **YAML ingest** layer and **CLI** that wire the
 pieces together. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full
@@ -157,6 +157,7 @@ features:                   # list[Feature], optional
         tolerance:                # optional; omit for a basic dimension
           upper_deviation: 0.05
           lower_deviation: 0.05
+        role: size                 # size | location | orientation | other (default: other)
     feature_control_frames:       # list[FeatureControlFrame], optional
       - id: fcf-1
         characteristic: position   # one of the 14 ASME Y14.5 symbols
@@ -187,6 +188,15 @@ checked by `related-dimension-must-be-defined`, alongside
 `angularity-related-dimension-must-be-angular`. See
 [ARCHITECTURE.md](ARCHITECTURE.md#dimension-linkage).
 
+`Dimension.role` (`size` | `location` | `orientation` | `other`,
+default `other`) declares what a dimension is *used for*, independent
+of `dimension_type` (which describes its numeric shape) and
+`is_reference` (which marks it informational-only). It's never
+inferred — an un-classified dimension defaults to `other` rather than
+being guessed from `dimension_type`, so a `linear` dimension is `other`
+unless explicitly marked `location` or `size`. See
+[ARCHITECTURE.md](ARCHITECTURE.md#dimension-role).
+
 ## Project structure
 
 ```
@@ -194,7 +204,7 @@ gdt-coach/
 ├── src/gdt_coach/
 │   ├── models/        # Pydantic domain model (Drawing, Feature, Datum, ...)
 │   ├── rules/          # rule engine (Rule, Finding, RuleRegistry, RuleEngine)
-│   │   └── checks/     # 18 concrete GD&T rules, one module per rule
+│   │   └── checks/     # 20 concrete GD&T rules, one module per rule
 │   ├── ingest/         # YAML loader (YAML -> Drawing)
 │   └── cli.py          # `gdt-coach` command
 ├── tests/              # pytest suite, mirrors src/gdt_coach/ layout
@@ -206,7 +216,7 @@ gdt-coach/
 
 ## Limitations
 
-- **Not a full ASME Y14.5 implementation.** 18 rules exist today; many
+- **Not a full ASME Y14.5 implementation.** 20 rules exist today; many
   characteristics, modifiers, and composite-tolerancing scenarios
   aren't covered yet. See [ROADMAP.md](ROADMAP.md) for what's planned.
 - **Not a CAD system.** There is no geometry engine and no 3D model —

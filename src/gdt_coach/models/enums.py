@@ -69,6 +69,21 @@ class DimensionType(StrEnum):
     ARC_LENGTH = "arc_length"
 
 
+class DimensionRole(StrEnum):
+    """What a dimension is used for on the drawing (independent of its type/shape).
+
+    Deliberately excludes a REFERENCE member: ``Dimension.is_reference``
+    is the existing, separate signal for informational/reference
+    dimensions, and duplicating that concept here would create two
+    fields that could disagree about the same fact.
+    """
+
+    SIZE = "size"
+    LOCATION = "location"
+    ORIENTATION = "orientation"
+    OTHER = "other"
+
+
 class ToleranceZoneShape(StrEnum):
     """The geometric shape of a tolerance zone."""
 

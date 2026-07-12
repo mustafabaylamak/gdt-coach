@@ -7,7 +7,7 @@ from typing import Self
 from pydantic import model_validator
 
 from gdt_coach.models.base import GDTBaseModel
-from gdt_coach.models.enums import DimensionType, Unit
+from gdt_coach.models.enums import DimensionRole, DimensionType, Unit
 from gdt_coach.models.tolerance import Tolerance
 
 _ANGULAR_UNITS = {Unit.DEGREE}
@@ -24,6 +24,7 @@ class Dimension(GDTBaseModel):
     unit: Unit
     tolerance: Tolerance | None = None
     is_reference: bool = False
+    role: DimensionRole = DimensionRole.OTHER
 
     @property
     def is_basic(self) -> bool:
