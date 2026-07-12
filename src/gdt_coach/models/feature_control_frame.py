@@ -39,6 +39,7 @@ class FeatureControlFrame(GDTBaseModel):
     all_over: bool = False
     free_state: bool = False
     statistical_tolerance: bool = False
+    related_dimension_ids: list[str] = Field(default_factory=list)
 
     @field_validator("datum_references")
     @classmethod
@@ -48,5 +49,17 @@ class FeatureControlFrame(GDTBaseModel):
         if duplicates:
             raise ValueError(
                 f"duplicate datum references in feature control frame: {sorted(duplicates)}"
+            )
+        return value
+
+    @field_validator("related_dimension_ids")
+    @classmethod
+    def _validate_related_dimension_ids(cls, value: list[str]) -> list[str]:
+        if any(not dimension_id.strip() for dimension_id in value):
+            raise ValueError("related_dimension_ids entries must be non-empty strings")
+        duplicates = {dimension_id for dimension_id in value if value.count(dimension_id) > 1}
+        if duplicates:
+            raise ValueError(
+                f"duplicate dimension ids in related_dimension_ids: {sorted(duplicates)}"
             )
         return value

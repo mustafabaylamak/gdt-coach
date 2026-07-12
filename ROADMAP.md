@@ -73,6 +73,22 @@ categories, and standards, plus documented limitations per rule.
   to exercise a branch that normal validation makes otherwise
   unreachable)
 
+### `FeatureControlFrame` → `Dimension` linkage
+
+- `FeatureControlFrame.related_dimension_ids: list[str]`, default `[]`,
+  declaring which `Dimension`(s) establish or support a feature control
+  frame (e.g. the basic location dimensions a position tolerance
+  applies to)
+- Structural validation only: every id must be a non-empty string, no
+  duplicate ids within one `FeatureControlFrame`
+- Deliberately does not check that referenced ids exist elsewhere on
+  the `Drawing` — that's cross-object referential integrity, left to
+  the rule layer, same as datum label references
+- Backward-compatible: optional field with an empty-list default, so
+  every existing YAML drawing still validates unchanged
+- See `ARCHITECTURE.md#dimension-linkage` for the full design and
+  validation-boundary rationale
+
 ## Planned
 
 - More GD&T rules: additional orientation/form checks, profile,

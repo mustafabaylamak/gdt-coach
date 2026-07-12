@@ -169,7 +169,17 @@ features:                   # list[Feature], optional
           - datum_label: A
           - datum_label: B
           - datum_label: C
+        related_dimension_ids:      # list[str], optional, default: []
+          - dim-1                     # ids of Dimensions that locate/orient this FCF
 ```
+
+`related_dimension_ids` names the `Dimension`(s) that establish or
+support a feature control frame (e.g. the basic location dimensions a
+position tolerance applies to). Validation is structural only — every
+id must be a non-empty string, and no id may repeat within one FCF —
+it does **not** check that the id matches a real `Dimension` anywhere
+on the drawing; that referential check belongs to the rule layer, not
+the model. See [ARCHITECTURE.md](ARCHITECTURE.md#dimension-linkage).
 
 ## Project structure
 

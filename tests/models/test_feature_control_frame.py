@@ -25,6 +25,7 @@ def test_minimal_fcf_defaults() -> None:
     assert fcf.all_over is False
     assert fcf.free_state is False
     assert fcf.statistical_tolerance is False
+    assert fcf.related_dimension_ids == []
 
 
 def test_fcf_with_ordered_datum_references() -> None:
@@ -96,4 +97,68 @@ def test_extra_fields_rejected() -> None:
             characteristic=GeometricCharacteristic.FLATNESS,
             tolerance=_tolerance(),
             bogus_field=1,
+        )
+
+
+def test_related_dimension_ids_default_empty() -> None:
+    fcf = FeatureControlFrame(
+        id="fcf-6",
+        characteristic=GeometricCharacteristic.POSITION,
+        tolerance=_tolerance(),
+    )
+
+    assert fcf.related_dimension_ids == []
+
+
+def test_related_dimension_ids_accepted() -> None:
+    fcf = FeatureControlFrame(
+        id="fcf-7",
+        characteristic=GeometricCharacteristic.POSITION,
+        tolerance=_tolerance(),
+        related_dimension_ids=["dim-1", "dim-2"],
+    )
+
+    assert fcf.related_dimension_ids == ["dim-1", "dim-2"]
+
+
+def test_related_dimension_ids_does_not_validate_existence() -> None:
+    # Referential integrity against Feature/Dimension ids is a rule-layer
+    # concern, not a model-construction concern -- an unknown id is accepted.
+    fcf = FeatureControlFrame(
+        id="fcf-8",
+        characteristic=GeometricCharacteristic.POSITION,
+        tolerance=_tolerance(),
+        related_dimension_ids=["dim-does-not-exist"],
+    )
+
+    assert fcf.related_dimension_ids == ["dim-does-not-exist"]
+
+
+def test_related_dimension_ids_empty_string_rejected() -> None:
+    with pytest.raises(ValidationError):
+        FeatureControlFrame(
+            id="fcf-9",
+            characteristic=GeometricCharacteristic.POSITION,
+            tolerance=_tolerance(),
+            related_dimension_ids=["dim-1", ""],
+        )
+
+
+def test_related_dimension_ids_whitespace_only_rejected() -> None:
+    with pytest.raises(ValidationError):
+        FeatureControlFrame(
+            id="fcf-10",
+            characteristic=GeometricCharacteristic.POSITION,
+            tolerance=_tolerance(),
+            related_dimension_ids=["   "],
+        )
+
+
+def test_related_dimension_ids_duplicates_rejected() -> None:
+    with pytest.raises(ValidationError):
+        FeatureControlFrame(
+            id="fcf-11",
+            characteristic=GeometricCharacteristic.POSITION,
+            tolerance=_tolerance(),
+            related_dimension_ids=["dim-1", "dim-1"],
         )

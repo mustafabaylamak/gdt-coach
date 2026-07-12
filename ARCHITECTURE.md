@@ -82,7 +82,8 @@ based on ASME Y14.5 concepts:
   `DatumReference` list (a small nested model pairing a datum label
   with its own material condition modifier), plus common frame
   modifiers (`all_around`, `all_over`, `free_state`,
-  `statistical_tolerance`).
+  `statistical_tolerance`), plus `related_dimension_ids` (see
+  "Dimension linkage" below).
 - `Tolerance` — shared by `Dimension` (a size tolerance range) and
   `FeatureControlFrame` (a geometric tolerance zone, represented as
   `upper_deviation == lower_deviation`), plus zone shape, material
@@ -94,6 +95,38 @@ based on ASME Y14.5 concepts:
 All models inherit `GDTBaseModel` (`models/base.py`), which forbids
 unknown fields and re-validates on attribute assignment
 (`extra="forbid"`, `validate_assignment=True`).
+
+### Dimension linkage
+
+`FeatureControlFrame.related_dimension_ids: list[str]` (default: `[]`)
+declares which `Dimension`(s) establish or support a feature control
+frame — e.g. the basic location dimensions a position tolerance
+applies to, or the basic angle an angularity tolerance applies to.
+It's a plain list of dimension id strings, not a list of references to
+`Dimension` objects.
+
+Model-level validation on this field is deliberately narrow and
+purely structural, matching the project's validation philosophy (see
+below):
+
+- every id must be a non-empty string (whitespace-only rejected)
+- no duplicate ids within one `FeatureControlFrame`
+
+It does **not** check that a given id actually corresponds to a
+`Dimension` that exists anywhere on the `Drawing` — that's cross-object
+referential integrity, which this codebase deliberately handles as a
+*rule*, not a model constraint (the same pattern already used for
+`Datum` labels — see `datum-reference-must-be-defined` in "Concrete
+rules"). A `FeatureControlFrame` can be constructed in isolation, before
+its owning `Feature`'s `Dimension` list even exists, so the model
+cannot know at construction time whether an id is dangling; only the
+rule engine, operating on a fully-assembled `Drawing`, can.
+
+This field unlocks — but does not itself implement — rules like
+"position requires at least one basic location dimension" or
+"angularity requires a basic angle dimension." No such rule exists yet;
+this sprint adds only the model field and its structural validation.
+See ROADMAP.md for what's planned on top of it.
 
 ### Validation philosophy
 
