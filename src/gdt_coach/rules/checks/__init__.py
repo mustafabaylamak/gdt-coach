@@ -16,6 +16,9 @@ touching this file and the rule's own module.
 """
 
 from gdt_coach.rules.base import Rule
+from gdt_coach.rules.checks.angularity_related_dimension_must_be_angular import (
+    AngularityRelatedDimensionMustBeAngularRule,
+)
 from gdt_coach.rules.checks.circularity_no_datum_references import (
     CircularityNoDatumReferencesRule,
 )
@@ -39,6 +42,9 @@ from gdt_coach.rules.checks.orientation_requires_datum_reference import (
 from gdt_coach.rules.checks.position_material_condition_requires_feature_of_size import (
     PositionMaterialConditionRequiresFeatureOfSizeRule,
 )
+from gdt_coach.rules.checks.position_related_dimension_must_be_basic import (
+    PositionRelatedDimensionMustBeBasicRule,
+)
 from gdt_coach.rules.checks.position_requires_datum_reference import (
     PositionRequiresDatumReferenceRule,
 )
@@ -47,6 +53,12 @@ from gdt_coach.rules.checks.position_requires_feature_of_size import (
 )
 from gdt_coach.rules.checks.projected_zone_requires_position import (
     ProjectedZoneRequiresPositionRule,
+)
+from gdt_coach.rules.checks.related_dimension_must_be_defined import (
+    RelatedDimensionMustBeDefinedRule,
+)
+from gdt_coach.rules.checks.related_dimension_must_not_be_reference import (
+    RelatedDimensionMustNotBeReferenceRule,
 )
 from gdt_coach.rules.checks.runout_always_rfs import RunoutAlwaysRfsRule
 from gdt_coach.rules.checks.straightness_no_datum_references import (
@@ -68,10 +80,15 @@ ALL_RULE_CLASSES: tuple[type[Rule], ...] = (
     PositionRequiresFeatureOfSizeRule,
     PositionMaterialConditionRequiresFeatureOfSizeRule,
     RunoutAlwaysRfsRule,
+    RelatedDimensionMustBeDefinedRule,
+    PositionRelatedDimensionMustBeBasicRule,
+    RelatedDimensionMustNotBeReferenceRule,
+    AngularityRelatedDimensionMustBeAngularRule,
 )
 
 __all__ = [
     "ALL_RULE_CLASSES",
+    "AngularityRelatedDimensionMustBeAngularRule",
     "CircularityNoDatumReferencesRule",
     "ConcentricitySymmetryDeprecatedRule",
     "CylindricityNoDatumReferencesRule",
@@ -81,9 +98,12 @@ __all__ = [
     "FormMmcRequiresFeatureOfSizeRule",
     "OrientationRequiresDatumReferenceRule",
     "PositionMaterialConditionRequiresFeatureOfSizeRule",
+    "PositionRelatedDimensionMustBeBasicRule",
     "PositionRequiresDatumReferenceRule",
     "PositionRequiresFeatureOfSizeRule",
     "ProjectedZoneRequiresPositionRule",
+    "RelatedDimensionMustBeDefinedRule",
+    "RelatedDimensionMustNotBeReferenceRule",
     "RunoutAlwaysRfsRule",
     "StraightnessNoDatumReferencesRule",
 ]

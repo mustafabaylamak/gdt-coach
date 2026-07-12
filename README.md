@@ -12,7 +12,7 @@ was invalid.
 ```bash
 $ gdt-coach check examples/invalid_flatness_with_datum.yaml
 Checked examples/invalid_flatness_with_datum.yaml -- drawing 'dwg-002' ('Cover Plate')
-Rules run: 14
+Rules run: 18
 
 [ERROR] flatness-no-datum-references: Flatness cannot reference datums
   flatness feature control frame 'fcf-1' references datum(s) ['A'], but flatness must not reference any datum
@@ -44,14 +44,14 @@ feature control frame it's about.
 flowchart LR
     A["YAML file"] -->|gdt_coach.ingest| B["Drawing\n(Pydantic model)"]
     B --> C["RuleEngine.run()"]
-    C -->|"gdt_coach.rules.checks\n(14 rules)"| D["list[Finding]"]
+    C -->|"gdt_coach.rules.checks\n(18 rules)"| D["list[Finding]"]
     D --> E["CLI report\n(text or JSON)"]
 ```
 
 Four independent layers: a **domain model** (`gdt_coach.models`) that
 knows nothing about GD&T rules, only what data is structurally valid; a
 **rule engine** (`gdt_coach.rules`) that knows nothing about any
-specific rule, only how to run one; 14 **concrete rules**
+specific rule, only how to run one; 18 **concrete rules**
 (`gdt_coach.rules.checks`), each an independent, self-registering
 module; and a thin **YAML ingest** layer and **CLI** that wire the
 pieces together. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full
@@ -179,7 +179,13 @@ position tolerance applies to). Validation is structural only — every
 id must be a non-empty string, and no id may repeat within one FCF —
 it does **not** check that the id matches a real `Dimension` anywhere
 on the drawing; that referential check belongs to the rule layer, not
-the model. See [ARCHITECTURE.md](ARCHITECTURE.md#dimension-linkage).
+the model. Resolution is scoped to the dimensions on the *same*
+feature (`Dimension.id` is unique per feature, not drawing-wide) and is
+checked by `related-dimension-must-be-defined`, alongside
+`position-related-dimension-must-be-basic`,
+`related-dimension-must-not-be-reference`, and
+`angularity-related-dimension-must-be-angular`. See
+[ARCHITECTURE.md](ARCHITECTURE.md#dimension-linkage).
 
 ## Project structure
 
@@ -188,7 +194,7 @@ gdt-coach/
 ├── src/gdt_coach/
 │   ├── models/        # Pydantic domain model (Drawing, Feature, Datum, ...)
 │   ├── rules/          # rule engine (Rule, Finding, RuleRegistry, RuleEngine)
-│   │   └── checks/     # 14 concrete GD&T rules, one module per rule
+│   │   └── checks/     # 18 concrete GD&T rules, one module per rule
 │   ├── ingest/         # YAML loader (YAML -> Drawing)
 │   └── cli.py          # `gdt-coach` command
 ├── tests/              # pytest suite, mirrors src/gdt_coach/ layout
@@ -200,7 +206,7 @@ gdt-coach/
 
 ## Limitations
 
-- **Not a full ASME Y14.5 implementation.** 14 rules exist today; many
+- **Not a full ASME Y14.5 implementation.** 18 rules exist today; many
   characteristics, modifiers, and composite-tolerancing scenarios
   aren't covered yet. See [ROADMAP.md](ROADMAP.md) for what's planned.
 - **Not a CAD system.** There is no geometry engine and no 3D model —

@@ -226,7 +226,9 @@ def test_check_category_filter_is_repeatable(capsys: pytest.CaptureFixture[str])
 
     assert exit_code == 1
     out = capsys.readouterr().out
-    assert "Rules run: 14" in out  # union of both categories covers every rule
+    # union of feature_control_frame (13) + tolerance (2) = 15; the 3 DIMENSION
+    # category rules (added in Sprint 9) are outside this union
+    assert "Rules run: 15" in out
 
 
 def test_check_standard_filter_narrows_rules_run(capsys: pytest.CaptureFixture[str]) -> None:
@@ -236,8 +238,9 @@ def test_check_standard_filter_narrows_rules_run(capsys: pytest.CaptureFixture[s
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    # GENERAL standard: fcf-duplicate-datum-references + datum-reference-must-be-defined
-    assert "Rules run: 2" in out
+    # GENERAL standard: fcf-duplicate-datum-references, datum-reference-must-be-defined,
+    # related-dimension-must-be-defined, related-dimension-must-not-be-reference
+    assert "Rules run: 4" in out
 
 
 def test_check_invalid_category_exits_two_with_stderr_message(
@@ -279,7 +282,7 @@ def test_check_json_output_is_valid_json(capsys: pytest.CaptureFixture[str]) -> 
     payload = json.loads(capsys.readouterr().out)
     assert payload["path"] == str(path)
     assert payload["drawing"] == {"id": "dwg-003", "title": "Threaded Plate"}
-    assert payload["rules_run"] == 14
+    assert payload["rules_run"] == 18
     assert payload["summary"] == {"finding_count": 1, "by_severity": {"error": 1}}
     assert len(payload["findings"]) == 1
     finding = payload["findings"][0]

@@ -23,7 +23,7 @@ list[Finding]  ──────────────────►   gdt_c
 - **Rule engine** (`gdt_coach.rules`) — infrastructure for defining and
   running rules against a `Drawing`. Knows nothing about any specific
   rule.
-- **Concrete rules** (`gdt_coach.rules.checks`) — 14 deterministic ASME
+- **Concrete rules** (`gdt_coach.rules.checks`) — 18 deterministic ASME
   Y14.5 rules, each a small, independent module.
 - **Ingest** (`gdt_coach.ingest`) — loads a `Drawing` from YAML. No other
   input format is supported yet.
@@ -71,7 +71,10 @@ based on ASME Y14.5 concepts:
   the `Feature` and `Datum` collections. Rejects duplicate feature ids
   and duplicate datum labels within the same drawing.
 - `Feature` — a physical feature of a part (hole, slot, pin, ...),
-  holding its own `Dimension` and `FeatureControlFrame` lists.
+  holding its own `Dimension` and `FeatureControlFrame` lists. Rejects
+  duplicate `Dimension.id` values *within* its own `dimensions` list
+  (see "Dimension linkage" below for why); this uniqueness is scoped to
+  one `Feature`, not drawing-wide.
 - `Datum` — a lettered datum feature reference (`A`, `B`, ...) and the
   geometric type it simulates (plane, axis, point, line, center plane).
 - `Dimension` — a nominal value with a unit and an optional `Tolerance`
@@ -122,23 +125,50 @@ its owning `Feature`'s `Dimension` list even exists, so the model
 cannot know at construction time whether an id is dangling; only the
 rule engine, operating on a fully-assembled `Drawing`, can.
 
-This field unlocks — but does not itself implement — rules like
-"position requires at least one basic location dimension" or
-"angularity requires a basic angle dimension." No such rule exists yet;
-this sprint adds only the model field and its structural validation.
-See ROADMAP.md for what's planned on top of it.
+**Resolution scope**: `related_dimension_ids` resolves *only* against
+the `Dimension`s on the same owning `Feature` — `FeatureControlFrame`
+and `Dimension` are both children of one `Feature`, and
+`FeatureControlFrame.feature_id` is not used for this (or anything
+else; see "Validation philosophy" below). This is why `Feature` (not
+`Drawing`) is where `Dimension.id` uniqueness is enforced: a rule doing
+`{d.id: d for d in feature.dimensions}` to resolve an id needs that
+lookup to be unambiguous *within one feature*. Nothing requires
+`Dimension.id` to be unique drawing-wide — two different features may
+each have their own `dim-1`, and resolution never looks outside the
+owning feature, so a cross-feature collision is not this model's
+concern.
+
+This field now backs four rules (added in Sprint 9) —
+`related-dimension-must-be-defined`,
+`position-related-dimension-must-be-basic`,
+`related-dimension-must-not-be-reference`, and
+`angularity-related-dimension-must-be-angular` — see "Concrete rules"
+below. It does not yet unlock "position requires at least one basic
+*location* dimension": there is still no field on `Dimension`
+distinguishing a location dimension from a size dimension (a `LINEAR`
+dimension is ambiguously either), so that rule remains blocked pending
+a `Dimension` role/location field. See ROADMAP.md.
 
 ### Validation philosophy
 
 Model validators only reject data that is *structurally impossible*
 (negative tolerance, a diameter of zero, duplicate datum labels,
-mismatched dimension type/unit). They never encode GD&T interpretation
-rules (e.g. "flatness cannot reference a datum") — that's the rule
-engine's job, operating on a fully-assembled `Drawing`. Referential
-integrity between id fields (`Feature.id`, `Datum.referenced_feature_id`,
-`FeatureControlFrame.feature_id`) is intentionally not enforced at the
-model level, for the same reason — see `datum-reference-must-be-defined`
-below for an example of this being handled as a rule instead.
+duplicate dimension ids within one feature, mismatched dimension
+type/unit). They never encode GD&T interpretation rules (e.g.
+"flatness cannot reference a datum") — that's the rule engine's job,
+operating on a fully-assembled `Drawing`. Referential integrity between
+id fields (`Feature.id`, `Datum.referenced_feature_id`,
+`FeatureControlFrame.feature_id`, `FeatureControlFrame.related_dimension_ids`)
+is intentionally not enforced at the model level, for the same reason —
+see `datum-reference-must-be-defined` and `related-dimension-must-be-defined`
+below for this being handled as a rule instead.
+
+Note that `FeatureControlFrame.feature_id` itself is not read anywhere
+in this codebase — not by any rule, not by the engine, not by
+`related_dimension_ids` resolution. The real (and only) FCF↔Feature
+association is structural containment (`Feature.feature_control_frames`).
+`feature_id` remains an unenforced, informational field; nothing in
+Sprint 9 relies on it, by requirement.
 
 ## Rule engine
 
@@ -176,7 +206,7 @@ needs to change for that rule to start running.
 
 ## Concrete rules
 
-`gdt_coach.rules.checks` holds 14 deterministic GD&T rules, one module
+`gdt_coach.rules.checks` holds 18 deterministic GD&T rules, one module
 per rule, each self-registering against `default_registry` via
 `@default_registry.register`. Importing `gdt_coach.rules.checks` (the
 package `__init__.py` imports every rule module) is what makes that
@@ -221,6 +251,10 @@ rather than approximated with a heuristic.
 | No duplicate datum references in one FCF | `fcf-duplicate-datum-references` | Datum structure | GENERAL | ERROR |
 | Referenced datums must be defined | `datum-reference-must-be-defined` | Datum structure | GENERAL | ERROR |
 | Concentricity/symmetry are deprecated | `concentricity-symmetry-deprecated` | Standard edition | ASME Y14.5-2018 | WARNING |
+| Related dimensions must be defined | `related-dimension-must-be-defined` | Dimension structure | GENERAL | ERROR |
+| Position-related dimensions must be basic | `position-related-dimension-must-be-basic` | Dimension | ASME Y14.5-2018 | ERROR |
+| Related dimensions must not be reference dimensions | `related-dimension-must-not-be-reference` | Dimension | GENERAL | ERROR |
+| Angularity-related dimensions must be angular | `angularity-related-dimension-must-be-angular` | Dimension | ASME Y14.5-2018 | ERROR |
 
 **Scope note**: `position-material-condition-requires-feature-of-size`
 is deliberately scoped to `characteristic == POSITION` only, rather than
@@ -230,11 +264,13 @@ modifier — this avoids overlapping with
 straightness/flatness. A broader, characteristic-agnostic version is a
 candidate for future work.
 
-All 14 rules are purely deterministic given the current domain model —
+All 18 rules are purely deterministic given the current domain model —
 every field they inspect (`characteristic`, `datum_references`,
 `tolerance.material_condition`, `tolerance.projected_zone_height`,
-`Feature.feature_of_size`) is always present and unambiguous on a
-constructed `Drawing`. There is no "indeterminate" finding concept in
+`Feature.feature_of_size`, `related_dimension_ids`, `Dimension.is_basic`,
+`Dimension.is_reference`, `Dimension.dimension_type`) is always present
+and unambiguous on a constructed `Drawing`. There is no "indeterminate"
+finding concept in
 the architecture (`Severity` has no `UNKNOWN`/`INDETERMINATE` member,
 and `Rule.check` must return a concrete `list[Finding]`); that's future
 work if a rule ever genuinely needs it.
@@ -264,6 +300,17 @@ work if a rule ever genuinely needs it.
   Feature of Size left un-flagged in the source data will produce a
   false-positive finding. No heuristic (e.g. guessing FOS-ness from
   `feature_type in {HOLE, CYLINDER, ...}`) is used to paper over this.
+- **`position-related-dimension-must-be-basic`,
+  `related-dimension-must-not-be-reference`, and
+  `angularity-related-dimension-must-be-angular` all silently skip
+  unresolved dimension ids** rather than reporting anything about them.
+  An id in `related_dimension_ids` with no matching `Dimension` on the
+  owning feature is `related-dimension-must-be-defined`'s problem to
+  report, not theirs — evaluating a non-existent dimension's
+  `is_basic`/`is_reference`/`dimension_type` would mean guessing, which
+  this codebase's rules never do. Run all four rules together (as the
+  CLI does by default) to get complete coverage of a related-dimension
+  problem.
 
 ## Ingest layer
 
@@ -357,16 +404,20 @@ built with `argparse` subparsers.
   at the current rule count; revisit once the hand-maintained list
   becomes tedious to keep in sync.
 - Whether/where cross-model referential integrity beyond datum labels
-  (dangling `Feature.id`, `Datum.referenced_feature_id`,
-  `FeatureControlFrame.feature_id`) gets checked — plausibly as rules
-  themselves, following the same pattern as
-  `datum-reference-must-be-defined`.
-- A link from `FeatureControlFrame` to the `Dimension`(s) that locate
-  or orient it (e.g. `related_dimension_ids: list[str] | None`) — a
-  small model change that would unlock rules like "position requires
-  basic location dimensions" or "angularity requires a basic angle,"
-  neither implementable now without an ambiguous heuristic across
-  multiple dimensions/FCFs on one `Feature`.
+  and `related_dimension_ids` (dangling `Feature.id`,
+  `Datum.referenced_feature_id`, `FeatureControlFrame.feature_id`) gets
+  checked — plausibly as rules themselves, following the same pattern
+  as `datum-reference-must-be-defined` and (as of Sprint 9)
+  `related-dimension-must-be-defined`.
+- A `Dimension` role/location field (e.g. `is_location: bool`,
+  mirroring the existing `is_reference: bool`) — the single largest
+  remaining unlock identified after Sprint 9: without it, "position
+  requires at least one basic location dimension" cannot be written,
+  because a `LINEAR` dimension is ambiguously either a size dimension
+  or a location dimension and nothing on `Dimension` disambiguates the
+  two. Deliberately deferred past Sprint 9 as a real domain-modeling
+  decision rather than folded into a sprint scoped around "no
+  architecture changes."
 - A composite/multi-segment `FeatureControlFrame` representation — a
   larger model change needed for any composite-tolerancing rule (e.g.
   "lower segment tolerance tighter than upper segment");
