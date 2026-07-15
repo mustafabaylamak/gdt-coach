@@ -46,8 +46,10 @@ report output — only plain text and JSON.
     `Standard` enums. See "Rule engine" below.
     - `checks/` — concrete `Rule` subclasses, one module per rule. See
       "Concrete rules" below.
-  - `ingest/` — YAML loading: turns a YAML document into a validated
-    `Drawing`. See "Ingest layer" below.
+  - `ingest/` — loads a source document into a validated `Drawing`;
+    YAML is the only implemented format, dispatched through an
+    `InputAdapter`/`AdapterRegistry` boundary. See "Ingest layer"
+    below.
 - `tests/` — pytest suite, mirrors the package layout (`tests/models/`
   mirrors `src/gdt_coach/models/`, `tests/rules/` mirrors
   `src/gdt_coach/rules/`, `tests/rules/checks/` mirrors
@@ -379,19 +381,27 @@ work if a rule ever genuinely needs it.
 
 ## Ingest layer
 
-`gdt_coach.ingest` is a thin translation layer: it turns YAML text into
-a plain dict (via `yaml.safe_load`) and hands that straight to
-`Drawing.model_validate()`. It adds no GD&T semantics and no extra
-validation of its own — every check that runs is either "is this valid
-YAML" or a check `Drawing` (and its nested models) already performs.
+`gdt_coach.ingest` is a thin translation layer: it turns a source
+document into a validated `Drawing`. It adds no GD&T semantics and no
+extra validation of its own — every check that runs is either "is this
+valid input" or a check `Drawing` (and its nested models) already
+performs. The ingest layer itself never calls `RuleEngine` — that
+wiring lives in the CLI (see "Entry points" below).
 
 - `yaml_loader.py` — `load_drawing_from_yaml_string(text, *,
-  source_name=...)` and `load_drawing_from_yaml_file(path)`. Both
-  return a `Drawing` or raise.
+  source_name=...)` and `load_drawing_from_yaml_file(path)`: turns YAML
+  text into a plain dict (via `yaml.safe_load`) and hands that straight
+  to `Drawing.model_validate()`. Both return a `Drawing` or raise.
+  Unchanged by the adapter work below — nothing in this module or its
+  public functions was touched.
 - `exceptions.py` — `YamlParseError` (not valid YAML, or not a mapping,
   or an empty document) and `DrawingValidationError` (parses fine but
   fails `Drawing`'s validation — wraps the underlying Pydantic
-  `ValidationError`). Both subclass `IngestError`.
+  `ValidationError`), plus (Sprint 13) `UnsupportedFormatError`,
+  `DuplicateFormatIdError`, `DuplicateFileExtensionError`. All subclass
+  `IngestError`.
+- `adapter.py` (Sprint 13) — the format-dispatch boundary described
+  below.
 
 **YAML schema**: the YAML mirrors `gdt_coach.models` field names and
 nesting directly (`Drawing` -> `features`/`datums` ->
@@ -405,10 +415,46 @@ the same lowercase string values as each enum's `.value` (e.g.
 than being silently ignored. See `examples/` for complete drawings and
 the README for a field-by-field walkthrough.
 
-**Deliberately not done here**: any non-YAML input format
-(PDF/DXF/CAD/image). The ingest layer itself only builds a `Drawing`
-and never calls `RuleEngine` — that wiring lives in the CLI (see "Entry
-points" below).
+### Input adapters
+
+`InputAdapter` (`ingest/adapter.py`) is the ingest-layer analog of
+`Rule`: a concrete subclass declares two class attributes
+(`format_id`, `file_extensions`) and implements `load(path: Path) ->
+Drawing`. `AdapterRegistry` is the analog of `RuleRegistry` — it
+resolves an adapter by normalized (lowercased, dot-prefixed) file
+extension via a plain dict lookup, so which adapter handles a given
+extension never depends on registration order, only on which
+extensions were declared (duplicates are rejected at registration
+time, before any lookup can be ambiguous). `ALL_INPUT_ADAPTERS` is the
+single source of truth for "every adapter that exists", mirroring
+`ALL_RULE_CLASSES`.
+
+`YamlInputAdapter` (`format_id="yaml"`, extensions `.yaml`/`.yml`) is
+the only concrete adapter today. It is a pure delegation wrapper around
+`load_drawing_from_yaml_file` — no YAML parsing or validation logic is
+duplicated in `adapter.py`.
+
+`cli.py`'s `check` command resolves an adapter from `ALL_INPUT_ADAPTERS`
+via `AdapterRegistry.resolve(path)` and calls `adapter.load(path)`,
+rather than calling `load_drawing_from_yaml_file` directly. An
+unresolvable extension raises `UnsupportedFormatError` (an
+`IngestError` subclass), which flows through the CLI's existing
+`except (IngestError, OSError)` handling unchanged — no new error path
+was added to the CLI, only a new thing that can raise into the
+existing one. This means a future adapter can be added by writing one
+module and adding it to `ALL_INPUT_ADAPTERS`, without touching
+`cli.py`, `RuleEngine`, `RuleRegistry`, or any domain model — the same
+ergonomics `ALL_RULE_CLASSES` already gives new rules.
+
+**What this is not**: this is dispatch infrastructure, not PDF/DXF/CAD
+support. `YamlInputAdapter.load()` returns a `Drawing` directly —
+there is no intermediate representation between raw input and the
+domain model. Introducing one is deliberately deferred until a second
+real importer (CSV, PDF, DXF, STEP AP242, ...) exists to provide actual
+evidence for what a shared intermediate shape would need to carry;
+designing it now, against a single format, would mean guessing.
+CSV/PDF/DXF/STEP/OCR ingestion and format auto-sniffing remain
+explicitly out of scope (see "Decisions to be made" below).
 
 ## Tooling
 
@@ -434,9 +480,13 @@ built with `argparse` subparsers.
 - `gdt-coach check <path> [--category CATEGORY]... [--standard STANDARD] [--json]`
   — the only place in the codebase that wires the ingest layer to the
   rule engine:
-  1. `gdt_coach.ingest.load_drawing_from_yaml_file(path)` loads the
-     `Drawing`. `IngestError` or `OSError` (e.g. a missing file) is
-     caught, printed to stderr, and maps to **exit code 2**.
+  1. (Sprint 13) An `AdapterRegistry` is built from `ALL_INPUT_ADAPTERS`
+     and resolves the adapter for `path`'s extension; that adapter's
+     `load(path)` produces the `Drawing`. `IngestError` (including
+     `UnsupportedFormatError` for an unrecognized extension) or
+     `OSError` (e.g. a missing file) is caught, printed to stderr, and
+     maps to **exit code 2** — the same catch clause as before Sprint
+     13; only what can raise into it changed.
   2. `--category` (repeatable) and `--standard` are parsed into a
      `set[RuleCategory] | None` and `Standard | None` and passed
      straight through to `RuleEngine.run(categories=, standard=)` — the
@@ -569,8 +619,14 @@ prefer deleting the restatement over automating its regeneration.
 - A documented policy on paraphrasing vs. quoting ASME Y14.5/ISO 1101
   in rule `explanation` text — no verbatim standard text exists today,
   but nothing currently stops a future rule from copying it in.
-- Other input formats (PDF/DXF/CAD/image) — explicitly out of scope
-  for now.
+- Other input formats (CSV/PDF/DXF/CAD/STEP AP242/image) — explicitly
+  out of scope for now. Sprint 13 built the `InputAdapter`/
+  `AdapterRegistry` dispatch boundary a second format would plug into,
+  but implemented none — see "Ingest layer" above.
+- Whether a formal intermediate representation belongs between raw
+  input and `Drawing`, once a second real adapter exists to show what
+  it would need to carry (deliberately not designed against YAML
+  alone).
 - Data storage / persistence approach, if any.
 
 Update this document as real architecture decisions are made.

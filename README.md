@@ -125,6 +125,15 @@ for finding in findings:
     print(finding.severity, finding.title, finding.message)
 ```
 
+`load_drawing_from_yaml_file`/`load_drawing_from_yaml_string` are
+unchanged and remain the simplest way to load a `Drawing` from YAML.
+Internally, `gdt-coach check` resolves its loader through
+`gdt_coach.ingest.AdapterRegistry` + `ALL_INPUT_ADAPTERS` instead of
+calling the YAML loader directly — dispatch infrastructure for future
+input formats (YAML is still the only one implemented), not something
+you need to use directly just to load YAML. See
+[ARCHITECTURE.md](ARCHITECTURE.md#input-adapters).
+
 Or build a `Drawing` directly, without YAML:
 
 ```python

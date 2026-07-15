@@ -62,6 +62,26 @@ the old hand-maintained table, and documented per-rule limitations.
 - `YamlParseError` / `DrawingValidationError` (`IngestError` base) for
   malformed YAML vs. domain-model validation failures
 
+### Input adapter dispatch (Sprint 13)
+
+- `InputAdapter` (`format_id`, `file_extensions`, `load(path) -> Drawing`)
+  and `AdapterRegistry` (resolves by normalized, case-insensitive file
+  extension; rejects duplicate format ids/extensions at registration
+  time), mirroring `Rule`/`RuleRegistry`
+- `ALL_INPUT_ADAPTERS` as the single source of truth for which
+  adapters exist, used by the CLI exactly like `ALL_RULE_CLASSES`
+- `YamlInputAdapter` is the only concrete adapter — a pure delegation
+  wrapper around `load_drawing_from_yaml_file`, no parsing logic
+  duplicated
+- `gdt-coach check` resolves its adapter through the registry instead
+  of calling the YAML loader directly; an unresolvable extension
+  raises `UnsupportedFormatError` (an `IngestError` subclass), so it
+  flows through the CLI's existing error handling unchanged
+- Dispatch infrastructure only — no second format is implemented, no
+  intermediate representation was added, no new runtime dependency.
+  See `ARCHITECTURE.md#input-adapters` for the full design and what's
+  deliberately deferred
+
 ### CLI
 
 - `gdt-coach check <path>`: loads a YAML drawing, runs the rule engine,
@@ -82,7 +102,7 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Testing
 
-- 340 tests, 99% line coverage, run on every push via CI
+- 358 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -178,7 +198,13 @@ the old hand-maintained table, and documented per-rule limitations.
 - A versioned wire schema for YAML input, if the domain model changes
   in ways that would otherwise break existing files
 - Packaging/release process (versioning, changelog, PyPI publishing)
-- Other input formats (PDF/DXF/CAD/image) — a substantial undertaking,
-  not scoped yet
+- Other input formats (CSV/PDF/DXF/CAD/STEP AP242/image) — a
+  substantial undertaking, not scoped yet. Sprint 13 built the
+  adapter/registry boundary a second format would plug into; it
+  implemented none of them
+- A formal intermediate representation between raw input and `Drawing`
+  — deliberately deferred until a second real adapter exists to show
+  what shape it actually needs, rather than designing it against YAML
+  alone
 
 See `PROJECT.md` for goals, non-goals, and success criteria.

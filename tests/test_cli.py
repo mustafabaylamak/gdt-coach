@@ -90,6 +90,20 @@ def test_check_malformed_yaml_exits_two(tmp_path: Path) -> None:
     assert exit_code == 2
 
 
+def test_check_unsupported_extension_exits_two_with_stderr_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    unsupported_file = tmp_path / "drawing.pdf"
+    unsupported_file.write_text("not actually a pdf", encoding="utf-8")
+
+    exit_code = main(["check", str(unsupported_file)])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no input adapter registered for file extension '.pdf'" in captured.err
+
+
 def test_check_nonexistent_file_exits_two(tmp_path: Path) -> None:
     missing = tmp_path / "does-not-exist.yaml"
 

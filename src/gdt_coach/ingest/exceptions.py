@@ -13,3 +13,15 @@ class YamlParseError(IngestError):
 
 class DrawingValidationError(IngestError):
     """Raised when parsed YAML data does not satisfy the Drawing schema."""
+
+
+class UnsupportedFormatError(IngestError):
+    """Raised when no registered InputAdapter supports a given file's extension."""
+
+
+class DuplicateFormatIdError(IngestError):
+    """Raised when two InputAdapters are registered with the same format_id."""
+
+
+class DuplicateFileExtensionError(IngestError):
+    """Raised when two InputAdapters claim the same file extension."""

@@ -6,9 +6,10 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from gdt_coach import __version__
-from gdt_coach.ingest import load_drawing_from_yaml_file
+from gdt_coach.ingest import ALL_INPUT_ADAPTERS, AdapterRegistry
 from gdt_coach.ingest.exceptions import IngestError
 from gdt_coach.models import Drawing
 from gdt_coach.rules.base import Rule
@@ -156,6 +157,13 @@ def _build_registry() -> RuleRegistry:
     return registry
 
 
+def _build_adapter_registry() -> AdapterRegistry:
+    registry = AdapterRegistry()
+    for adapter_cls in ALL_INPUT_ADAPTERS:
+        registry.register(adapter_cls)
+    return registry
+
+
 def _parse_categories(values: list[str] | None) -> set[RuleCategory] | None:
     if values is None:
         return None
@@ -292,7 +300,9 @@ def _check(
     json_output: bool = False,
 ) -> int:
     try:
-        drawing = load_drawing_from_yaml_file(path)
+        path_obj = Path(path)
+        adapter = _build_adapter_registry().resolve(path_obj)
+        drawing = adapter.load(path_obj)
     except (IngestError, OSError) as error:
         print(f"error: could not load {path!r}: {error}", file=sys.stderr)
         return 2
