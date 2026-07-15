@@ -59,8 +59,12 @@ report output — only plain text and JSON.
 - `docs/` — reserved for documentation beyond the top-level `*.md`
   files (design notes, ADRs) once there is enough of it to warrant a
   subdirectory.
-- `scripts/` — reserved for standalone developer/maintenance scripts,
-  not part of the installable package. None exist yet.
+- `scripts/` — standalone developer/maintenance scripts, not part of
+  the installable package. Currently one:
+  `generate_examples_readme.py`, which regenerates the captured CLI
+  output in `examples/README.md` from the real CLI — see
+  `examples/README.md#keeping-this-file-accurate` and "Documentation
+  drift guard" below.
 
 ## Domain model
 
@@ -453,6 +457,37 @@ built with `argparse` subparsers.
      means exit 1), **exit code 2** for any load or filter-value error.
 - There is no Markdown/HTML report output yet — only plain-text and
   JSON as described above.
+
+## Documentation drift guard
+
+`examples/README.md` documents each bundled example with its exact
+command, real stdout, and exit code. Between Sprint 8 and Sprint 10
+this silently went stale — three sprints of new rules shipped without
+anyone re-running the examples, so the documented rule count (`14`)
+diverged from the real one (`20`) with nothing catching it. Sprint 11
+closed that gap with a mechanism, not just a one-time fix:
+
+- `scripts/generate_examples_readme.py` runs the real CLI
+  (`gdt_coach.cli.main`, the same function the installed console
+  script calls) against every YAML file in `examples/` and replaces
+  the content between each `<!-- gdt-coach:example KEY -->` /
+  `<!-- /gdt-coach:example -->` marker pair in `examples/README.md`
+  with a fresh capture. Everything outside those markers (rule
+  explanations, prose) is untouched.
+- It also fails loudly (`ExamplesReadmeError`) if `examples/*.yaml` and
+  the documented marker blocks fall out of sync in either direction —
+  a new example added without a doc block, or a doc block left behind
+  for a deleted example.
+- `tests/test_examples_readme.py` runs the same regeneration in
+  `--check` mode as a normal test, so `pytest` — already required on
+  every push via CI — fails if `examples/README.md` is ever out of
+  sync with real CLI output. No separate CI job or workflow change was
+  needed.
+- This mirrors the project's existing `ALL_RULE_CLASSES` philosophy
+  (one source of truth, checked rather than hand-maintained in
+  multiple places): the rule *count* itself is never hardcoded in the
+  generator or its tests — it only ever appears because it was
+  captured from real `Rules run: N` output.
 
 ## Decisions to be made
 

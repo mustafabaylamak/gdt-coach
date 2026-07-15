@@ -85,8 +85,9 @@ gdt-coach check examples/valid_position.yaml --category tolerance
 gdt-coach check examples/invalid_projected_zone.yaml --json
 ```
 
-See [examples/README.md](examples/README.md) for all five bundled
-example drawings, what each one demonstrates, and their exact output.
+See [examples/README.md](examples/README.md) for all six bundled
+example drawings, what each one demonstrates, and their exact output
+(generated from the real CLI, not hand-written).
 
 Exit codes: `0` no findings, `1` one or more findings, `2` the input
 couldn't be checked (malformed YAML, missing file, failed domain-model
@@ -210,7 +211,7 @@ gdt-coach/
 ├── tests/              # pytest suite, mirrors src/gdt_coach/ layout
 ├── examples/           # runnable example drawings (see examples/README.md)
 ├── docs/               # reserved for future deep-dive documentation
-├── scripts/            # reserved for maintenance scripts
+├── scripts/            # maintenance scripts (e.g. examples/README.md regeneration)
 └── .github/workflows/  # CI
 ```
 

@@ -32,6 +32,7 @@ def test_examples_directory_has_the_required_files() -> None:
     assert (_EXAMPLES_DIR / "invalid_projected_zone.yaml").is_file()
     assert (_EXAMPLES_DIR / "invalid_concentricity_deprecated.yaml").is_file()
     assert (_EXAMPLES_DIR / "invalid_position_without_feature_of_size.yaml").is_file()
+    assert (_EXAMPLES_DIR / "invalid_position_related_dimension_wrong_role.yaml").is_file()
 
 
 def test_valid_position_loads_and_passes_all_rules() -> None:
@@ -75,3 +76,15 @@ def test_invalid_position_without_feature_of_size_loads_and_is_flagged() -> None
     findings = _engine_with_all_rules().run(drawing)
 
     assert [finding.rule_id for finding in findings] == ["position-requires-feature-of-size"]
+
+
+def test_invalid_position_related_dimension_wrong_role_loads_and_is_flagged() -> None:
+    drawing = load_drawing_from_yaml_file(
+        _EXAMPLES_DIR / "invalid_position_related_dimension_wrong_role.yaml"
+    )
+
+    findings = _engine_with_all_rules().run(drawing)
+
+    assert [finding.rule_id for finding in findings] == [
+        "position-related-dimension-must-be-location"
+    ]

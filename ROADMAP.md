@@ -73,11 +73,25 @@ categories, and standards, plus documented limitations per rule.
 
 ### Testing
 
-- 310 tests, 99% line coverage, run on every push via CI
+- 326 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
   unreachable)
+
+### Examples & documentation drift guard
+
+- Six bundled example YAML drawings under `examples/`, one clean and
+  five each demonstrating a distinct rule (including a `WARNING`, and
+  one exercising `related_dimension_ids` + `Dimension.role`)
+- `scripts/generate_examples_readme.py` regenerates the captured
+  command/output/exit-code blocks in `examples/README.md` from the
+  real CLI; `tests/test_examples_readme.py` runs it in `--check` mode
+  as part of the normal test suite, failing the build if committed
+  documentation ever drifts from real behavior again
+- Closes a real regression: the documented rule count and example
+  output silently went stale for three sprints (Sprint 8–10) with
+  nothing catching it — see `ARCHITECTURE.md#documentation-drift-guard`
 
 ### `FeatureControlFrame` → `Dimension` linkage
 

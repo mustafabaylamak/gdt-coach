@@ -1,8 +1,11 @@
 # A GD&T-valid drawing: a position tolerance with a full three-datum
 # reference frame, no duplicate datum references, and no projected
-# tolerance zone on a non-position characteristic. Running the rule
-# engine's five Sprint 3 checks against this drawing produces zero
-# findings.
+# tolerance zone on a non-position characteristic. Also demonstrates
+# correct use of the Sprint 8-10 dimension-linkage fields: the position
+# FCF's related_dimension_ids points to dim-2, a basic dimension
+# explicitly marked role: location; the hole's own diameter (dim-1) is
+# marked role: size. Running the full rule set against this drawing
+# produces zero findings.
 id: dwg-001
 title: Mounting Bracket
 number: DWG-1001
@@ -32,6 +35,12 @@ features:
         tolerance:
           upper_deviation: 0.05
           lower_deviation: 0.05
+        role: size
+      - id: dim-2
+        dimension_type: linear
+        nominal_value: 40.0
+        unit: mm
+        role: location
     feature_control_frames:
       - id: fcf-1
         characteristic: position
@@ -44,3 +53,5 @@ features:
           - datum_label: A
           - datum_label: B
           - datum_label: C
+        related_dimension_ids:
+          - dim-2

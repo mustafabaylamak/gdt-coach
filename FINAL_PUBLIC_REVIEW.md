@@ -18,7 +18,7 @@ GD&T tool is worth adopting, contributing to, or pointing a team at.
   Feature-of-Size status from `feature_type`), the project explicitly
   declined and documented the resulting limitation instead. That's a
   harder, more honest engineering choice than it looks.
-- **Test discipline is genuinely strong for the project's size.** 242
+- **Test discipline is genuinely strong for the project's size.** 326
   tests, 99% line coverage, PASS/FAIL cases per rule, and tests that
   exercise otherwise-unreachable defense-in-depth branches
   (`model_construct()` to simulate data that bypassed validation). Mypy
@@ -41,7 +41,7 @@ GD&T tool is worth adopting, contributing to, or pointing a team at.
   format to this schema, the tool's audience is limited to people
   willing to hand-author YAML, which is a small fraction of the actual
   target users (manufacturing/mechanical engineers).
-- **14 rules is a real but partial slice of ASME Y14.5.** Composite
+- **20 rules is a real but partial slice of ASME Y14.5.** Composite
   tolerancing isn't modeled at all (not a missing rule — the domain
   model has no concept of a multi-segment feature control frame), and
   datum degrees-of-freedom accounting doesn't exist. A user's first
@@ -72,10 +72,12 @@ In roughly the order they'd matter to a prospective adopter:
 1. Some path from a real drawing (even a constrained one — a
    structured PDF or a specific CAD export) to the YAML schema. This is
    the single highest-leverage next step for real-world relevance.
-2. The two domain-model gaps already tracked in `ROADMAP.md`
-   (`FeatureControlFrame` → `Dimension` link; composite/multi-segment
-   FCF support) — both block entire categories of otherwise-reasonable
-   rules.
+2. The remaining domain-model gap tracked in `ROADMAP.md`
+   (composite/multi-segment FCF support) — it blocks an entire category
+   of otherwise-reasonable rules. (The `FeatureControlFrame` →
+   `Dimension` link named here in the original review has since
+   shipped, along with the dimension-role and related-dimension rules
+   it unlocked.)
 3. A `schema_version` field on `Drawing`, before the YAML format has
    external users depending on it.
 4. A coverage badge (Codecov or equivalent) wired into CI.

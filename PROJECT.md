@@ -34,7 +34,7 @@ a certified compliance checker — see "Non-goals" below.
   model, and no concept of physical part shape — only the symbolic
   GD&T data a drawing's YAML representation declares.
 - **Not a full ASME Y14.5 implementation.** The rule set is real but
-  partial (14 rules as of this writing); it does not cover composite
+  partial (20 rules as of this writing); it does not cover composite
   tolerancing, datum degrees-of-freedom accounting, or every
   characteristic/modifier combination in the standard.
 - **Not a certified or legally authoritative compliance tool.** A clean
