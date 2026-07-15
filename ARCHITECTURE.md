@@ -284,28 +284,32 @@ seemed interesting first. Rules requiring a model change that doesn't
 exist yet (see "Decisions to be made" below) were deliberately deferred
 rather than approximated with a heuristic.
 
-| Rule | id | Topic | Standard | Severity |
-|---|---|---|---|---|
-| Flatness cannot reference datums | `flatness-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
-| Straightness cannot reference datums | `straightness-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
-| Circularity cannot reference datums | `circularity-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
-| Cylindricity cannot reference datums | `cylindricity-no-datum-references` | Form | ASME Y14.5-2018 | ERROR |
-| Straightness/flatness MMC only on a Feature of Size | `form-mmc-requires-feature-of-size` | Form | ASME Y14.5-2018 | ERROR |
-| Orientation requires at least one datum | `orientation-requires-datum-reference` | Orientation | ASME Y14.5-2018 | ERROR |
-| Position must reference at least one datum | `position-requires-datum-reference` | Position | ASME Y14.5-2018 | ERROR |
-| Position applies only to a Feature of Size | `position-requires-feature-of-size` | Position | ASME Y14.5-2018 | ERROR |
-| MMC/LMC on position requires a Feature of Size | `position-material-condition-requires-feature-of-size` | Position | ASME Y14.5-2018 | ERROR |
-| Projected tolerance zone requires position | `projected-zone-requires-position` | Position | ASME Y14.5-2018 | ERROR |
-| Runout is always RFS | `runout-always-rfs` | Runout | ASME Y14.5-2018 | ERROR |
-| No duplicate datum references in one FCF | `fcf-duplicate-datum-references` | Datum structure | GENERAL | ERROR |
-| Referenced datums must be defined | `datum-reference-must-be-defined` | Datum structure | GENERAL | ERROR |
-| Concentricity/symmetry are deprecated | `concentricity-symmetry-deprecated` | Standard edition | ASME Y14.5-2018 | WARNING |
-| Related dimensions must be defined | `related-dimension-must-be-defined` | Dimension structure | GENERAL | ERROR |
-| Position-related dimensions must be basic | `position-related-dimension-must-be-basic` | Dimension | ASME Y14.5-2018 | ERROR |
-| Related dimensions must not be reference dimensions | `related-dimension-must-not-be-reference` | Dimension | GENERAL | ERROR |
-| Angularity-related dimensions must be angular | `angularity-related-dimension-must-be-angular` | Dimension | ASME Y14.5-2018 | ERROR |
-| Position-related dimensions must be location dimensions | `position-related-dimension-must-be-location` | Dimension | ASME Y14.5-2018 | ERROR |
-| Angularity-related dimensions must be orientation dimensions | `angularity-related-dimension-must-be-orientation` | Dimension | ASME Y14.5-2018 | ERROR |
+**The rule catalog itself is not hand-maintained here anymore.** A
+per-rule table (id, title, category, standard, severity) used to live
+in this section; it's what let the documented rule count silently
+drift from 14 to 20 across Sprints 8–11 with nothing catching it (see
+"Documentation drift guard" below — the same root cause
+`examples/README.md` had). Rather than fix that drift a second time
+and leave the table hand-maintained again, Sprint 12 removed it in
+favor of a live source of truth:
+
+```bash
+gdt-coach rules list                         # every rule: id, title, category, standard, severity
+gdt-coach rules list --category position     # filtered, same fields as `check` uses
+gdt-coach rules show position-requires-feature-of-size   # + the full explanation
+```
+
+Both support `--json` for scripting. See "Entry points" below for the
+full `rules` command reference. Rules group into a handful of
+recurring topics if you're browsing rather than searching: form
+(flatness/straightness/circularity/cylindricity datum restrictions,
+plus MMC-on-Feature-of-Size), orientation, position (datum reference,
+Feature of Size, material condition, projected zones), runout, datum
+and dimension structural integrity, standard-edition deprecation, and
+dimension-role/semantic checks (Sprint 9–10). "Known limitations"
+below still names specific rule ids where cross-rule context matters
+that no per-rule catalog entry could capture on its own — that prose
+isn't a rule enumeration, so it doesn't carry the same drift risk.
 
 **Scope note**: `position-material-condition-requires-feature-of-size`
 is deliberately scoped to `characteristic == POSITION` only, rather than
@@ -457,6 +461,32 @@ built with `argparse` subparsers.
      means exit 1), **exit code 2** for any load or filter-value error.
 - There is no Markdown/HTML report output yet — only plain-text and
   JSON as described above.
+- `gdt-coach rules list [--category CATEGORY]... [--standard STANDARD] [--json]`
+  — the live rule catalog, added in Sprint 12 specifically to replace
+  a hand-maintained table (see "Concrete rules" above):
+  1. Builds the same `RuleRegistry` from `ALL_RULE_CLASSES` that
+     `check` does; `--category`/`--standard` are parsed with the exact
+     same `_parse_categories`/`_parse_standard` helpers `check` uses,
+     so an invalid value produces the same error message shape and
+     **exit code 2**.
+  2. Matching rules are always sorted by `id` before printing —
+     deterministic regardless of `ALL_RULE_CLASSES` declaration order
+     or `RuleRegistry`'s internal (insertion-order) iteration.
+  3. Text output is one two-line block per rule (id/severity/category/standard,
+     then title) followed by a count line; `--json` prints
+     `{"rules": [{"id", "title", "category", "standard", "severity"}, ...]}`.
+     An empty result (filters matching no rule) is not an error —
+     **exit code 0** either way, matching `check`'s "no findings is
+     still a successful run" convention.
+- `gdt-coach rules show <rule_id> [--json]` — full detail for one rule,
+  including its `explanation` (text output: `id`/`title`/`category`/
+  `standard`/`severity`/`explanation`; `--json` adds `explanation` to
+  the same field set `list` uses). An unknown `rule_id` is caught via
+  `RuleRegistry.get`'s `KeyError`, printed to stderr, and maps to
+  **exit code 2**; a successful lookup is **exit code 0**.
+- Neither `rules` subcommand touches `RuleEngine`, `RuleRegistry`,
+  `Rule`, or any domain model — both are pure enumeration/formatting
+  over data every rule already carries as class attributes.
 
 ## Documentation drift guard
 
@@ -488,6 +518,17 @@ closed that gap with a mechanism, not just a one-time fix:
   multiple places): the rule *count* itself is never hardcoded in the
   generator or its tests — it only ever appears because it was
   captured from real `Rules run: N` output.
+
+**Sprint 12 applied the same lesson a second time**, to the
+per-rule table this section used to have (see "Concrete rules"
+above): rather than generate-and-check a documentation copy of the
+catalog the way `examples/README.md` does for CLI output, it removed
+the copy entirely — `gdt-coach rules list`/`rules show` *is* the
+catalog, so there's nothing left to keep in sync. Where a generated
+doc snapshot is still worth having (e.g. `examples/README.md`'s
+worked, explained examples), generate and check it; where a doc is
+purely a restatement of data the CLI can already print on demand,
+prefer deleting the restatement over automating its regeneration.
 
 ## Decisions to be made
 

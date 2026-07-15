@@ -14,6 +14,7 @@ from gdt_coach.cli import (
     main,
 )
 from gdt_coach.rules.category import RuleCategory
+from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.finding import Finding
 from gdt_coach.rules.severity import Severity
 from gdt_coach.rules.standard import Standard
@@ -327,3 +328,161 @@ def test_check_invalid_filter_with_json_flag_still_exits_two_plain_text(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "invalid --category value" in captured.err
+
+
+# --- `rules` subcommand -----------------------------------------------------
+
+
+def test_rules_list_lists_every_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert f"{len(ALL_RULE_CLASSES)} rule(s)." in out
+    for rule_cls in ALL_RULE_CLASSES:
+        assert rule_cls().id in out
+
+
+def test_rules_list_output_is_deterministically_ordered(capsys: pytest.CaptureFixture[str]) -> None:
+    ids_in_alphabetical_order = sorted(rule_cls().id for rule_cls in ALL_RULE_CLASSES)
+
+    exit_code = main(["rules", "list"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    listed_ids = [line.split()[0] for line in out.splitlines() if "  [" in line]
+    # Deterministic by construction (sorted by id), independent of
+    # ALL_RULE_CLASSES declaration/registration order.
+    assert listed_ids == ids_in_alphabetical_order
+
+
+def test_rules_list_category_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list", "--category", "tolerance"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "2 rule(s)." in out
+    assert "position-material-condition-requires-feature-of-size" in out
+    assert "projected-zone-requires-position" in out
+    assert "category=tolerance" in out
+    assert "category=dimension" not in out
+
+
+def test_rules_list_standard_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list", "--standard", "general"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "4 rule(s)." in out
+    assert "standard=asme_y14.5_2018" not in out
+
+
+def test_rules_list_combined_category_and_standard_filters(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(
+        ["rules", "list", "--category", "feature_control_frame", "--standard", "general"]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "3 rule(s)." in out
+    assert "datum-reference-must-be-defined" in out
+    assert "fcf-duplicate-datum-references" in out
+    assert "related-dimension-must-be-defined" in out
+
+
+def test_rules_list_empty_filter_result_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
+    # No rule currently uses RuleCategory.DATUM.
+    exit_code = main(["rules", "list", "--category", "datum"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "No rules match the given filters." in captured.out
+    assert captured.err == ""
+
+
+def test_rules_list_invalid_category_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list", "--category", "bogus"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid --category value" in captured.err
+
+
+def test_rules_list_invalid_standard_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list", "--standard", "bogus"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid --standard value" in captured.err
+
+
+def test_rules_list_json_output_is_valid_and_sorted(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list", "--category", "tolerance", "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [rule["id"] for rule in payload["rules"]] == [
+        "position-material-condition-requires-feature-of-size",
+        "projected-zone-requires-position",
+    ]
+    for rule in payload["rules"]:
+        assert set(rule) == {"id", "title", "category", "standard", "severity"}
+        assert rule["category"] == "tolerance"
+
+
+def test_rules_list_json_empty_filter_result(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "list", "--category", "datum", "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"rules": []}
+
+
+def test_rules_show_valid_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", "position-requires-feature-of-size"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "id: position-requires-feature-of-size" in out
+    assert "title: Position applies only to a Feature of Size" in out
+    assert "category: feature_control_frame" in out
+    assert "standard: asme_y14.5_2018" in out
+    assert "severity: ERROR" in out
+    assert "Feature of Size" in out  # explanation text is present
+
+
+def test_rules_show_json_output(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", "position-requires-feature-of-size", "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["id"] == "position-requires-feature-of-size"
+    assert payload["severity"] == "error"
+    assert payload["category"] == "feature_control_frame"
+    assert payload["standard"] == "asme_y14.5_2018"
+    assert set(payload) == {"id", "title", "category", "standard", "severity", "explanation"}
+    assert len(payload["explanation"]) > 0
+
+
+def test_rules_show_unknown_rule_id_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", "bogus-rule-id"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no rule registered with id 'bogus-rule-id'" in captured.err
+
+
+def test_rules_show_unknown_rule_id_with_json_flag_still_plain_text_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "show", "bogus-rule-id", "--json"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no rule registered with id" in captured.err

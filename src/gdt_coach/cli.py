@@ -11,6 +11,7 @@ from gdt_coach import __version__
 from gdt_coach.ingest import load_drawing_from_yaml_file
 from gdt_coach.ingest.exceptions import IngestError
 from gdt_coach.models import Drawing
+from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.engine import RuleEngine
@@ -65,6 +66,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit a JSON report instead of the plain-text report.",
     )
 
+    rules_parser = subparsers.add_parser(
+        "rules",
+        help="Inspect the registered GD&T rule catalog (derived from the rule engine itself).",
+    )
+    rules_subparsers = rules_parser.add_subparsers(dest="rules_command", required=True)
+
+    rules_list_parser = rules_subparsers.add_parser(
+        "list",
+        help="List every registered rule.",
+    )
+    rules_list_parser.add_argument(
+        "--category",
+        dest="categories",
+        action="append",
+        metavar="CATEGORY",
+        help=(
+            "Only list rules in this category (repeatable). One of: "
+            + ", ".join(category.value for category in RuleCategory)
+        ),
+    )
+    rules_list_parser.add_argument(
+        "--standard",
+        dest="standard",
+        metavar="STANDARD",
+        help=(
+            "Only list rules for this standard. One of: "
+            + ", ".join(standard.value for standard in Standard)
+        ),
+    )
+    rules_list_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit JSON instead of the plain-text list.",
+    )
+
+    rules_show_parser = rules_subparsers.add_parser(
+        "show",
+        help="Show full detail (including the explanation) for one rule.",
+    )
+    rules_show_parser.add_argument(
+        "rule_id",
+        help="The rule id to show (e.g. position-requires-feature-of-size).",
+    )
+    rules_show_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit JSON instead of plain text.",
+    )
+
     return parser
 
 
@@ -83,6 +135,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             standard=args.standard,
             json_output=args.json_output,
         )
+
+    if args.command == "rules":
+        if args.rules_command == "list":
+            return _rules_list(
+                categories=args.categories,
+                standard=args.standard,
+                json_output=args.json_output,
+            )
+        return _rules_show(args.rule_id, json_output=args.json_output)
 
     parser.print_help()
     return 0
@@ -129,6 +190,98 @@ def _count_matching_rules(
             continue
         count += 1
     return count
+
+
+def _matching_rules(
+    registry: RuleRegistry,
+    categories: set[RuleCategory] | None,
+    standard: Standard | None,
+) -> list[Rule]:
+    """Registered rules matching the given filters, sorted by id for deterministic output."""
+    rules = registry.all()
+    if categories is not None:
+        rules = [rule for rule in rules if rule.category in categories]
+    if standard is not None:
+        rules = [rule for rule in rules if rule.standard == standard]
+    return sorted(rules, key=lambda rule: rule.id)
+
+
+def _rule_summary(rule: Rule) -> dict[str, str]:
+    return {
+        "id": rule.id,
+        "title": rule.title,
+        "category": rule.category.value,
+        "standard": rule.standard.value,
+        "severity": rule.severity.value,
+    }
+
+
+def _rule_detail(rule: Rule) -> dict[str, str]:
+    return {**_rule_summary(rule), "explanation": rule.explanation}
+
+
+def _rules_list(
+    *,
+    categories: list[str] | None = None,
+    standard: str | None = None,
+    json_output: bool = False,
+) -> int:
+    try:
+        parsed_categories = _parse_categories(categories)
+        parsed_standard = _parse_standard(standard)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+    rules = _matching_rules(_build_registry(), parsed_categories, parsed_standard)
+
+    if json_output:
+        print(json.dumps({"rules": [_rule_summary(rule) for rule in rules]}, indent=2))
+    else:
+        _print_rules_list(rules)
+
+    return 0
+
+
+def _print_rules_list(rules: list[Rule]) -> None:
+    if not rules:
+        print("No rules match the given filters.")
+        return
+
+    for rule in rules:
+        print(
+            f"{rule.id}  [{rule.severity.value.upper()}]  "
+            f"category={rule.category.value} standard={rule.standard.value}"
+        )
+        print(f"  {rule.title}")
+        print()
+
+    print(f"{len(rules)} rule(s).")
+
+
+def _rules_show(rule_id: str, *, json_output: bool = False) -> int:
+    try:
+        rule = _build_registry().get(rule_id)
+    except KeyError:
+        print(f"error: no rule registered with id {rule_id!r}", file=sys.stderr)
+        return 2
+
+    if json_output:
+        print(json.dumps(_rule_detail(rule), indent=2))
+    else:
+        _print_rule_detail(rule)
+
+    return 0
+
+
+def _print_rule_detail(rule: Rule) -> None:
+    print(f"id: {rule.id}")
+    print(f"title: {rule.title}")
+    print(f"category: {rule.category.value}")
+    print(f"standard: {rule.standard.value}")
+    print(f"severity: {rule.severity.value.upper()}")
+    print()
+    print(rule.explanation)
 
 
 def _check(

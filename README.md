@@ -93,6 +93,25 @@ Exit codes: `0` no findings, `1` one or more findings, `2` the input
 couldn't be checked (malformed YAML, missing file, failed domain-model
 validation, or an invalid `--category`/`--standard` value).
 
+## Rule catalog
+
+`gdt-coach rules list` and `gdt-coach rules show <rule_id>` are the
+live source of truth for what rules exist — derived directly from the
+same rule classes the engine runs, not a hand-maintained document that
+can drift out of date:
+
+```bash
+gdt-coach rules list                                       # every rule, sorted by id
+gdt-coach rules list --category position --standard general # same filters as `check`
+gdt-coach rules show position-requires-feature-of-size      # id, title, category, standard, severity, explanation
+```
+
+Both accept `--json`. `rules list --json` is `{"rules": [{"id", "title",
+"category", "standard", "severity"}, ...]}`; `rules show --json` adds
+`"explanation"`. Exit codes: `0` on a successful list or show
+(including an empty filter result — that's not an error), `2` for an
+invalid `--category`/`--standard` value or an unknown rule id.
+
 ## Using it as a library
 
 ```python

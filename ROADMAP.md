@@ -49,8 +49,10 @@
 - Dimension role: position-related dimensions must have role LOCATION,
   angularity-related dimensions must have role ORIENTATION
 
-See `ARCHITECTURE.md#concrete-rules` for the full table with rule IDs,
-categories, and standards, plus documented limitations per rule.
+Run `gdt-coach rules list` for the live catalog (id, category,
+standard, severity) and `gdt-coach rules show <id>` for a rule's full
+explanation — see `ARCHITECTURE.md#concrete-rules` for what replaced
+the old hand-maintained table, and documented per-rule limitations.
 
 ### YAML ingest
 
@@ -70,10 +72,17 @@ categories, and standards, plus documented limitations per rule.
 - Exit codes: `0` no findings, `1` one or more findings, `2` input
   couldn't be checked (malformed YAML, missing file, failed validation,
   or an invalid filter value)
+- `gdt-coach rules list [--category]... [--standard] [--json]` and
+  `gdt-coach rules show <rule_id> [--json]` (Sprint 12): a live rule
+  catalog derived entirely from `ALL_RULE_CLASSES`, sorted by id for
+  deterministic output, reusing `check`'s own category/standard
+  parsing. Exit codes: `0` on a successful list/show (including an
+  empty filter result), `2` for an invalid `--category`/`--standard`
+  value or an unknown rule id
 
 ### Testing
 
-- 326 tests, 99% line coverage, run on every push via CI
+- 340 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
