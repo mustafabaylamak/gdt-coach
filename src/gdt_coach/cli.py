@@ -6,11 +6,12 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from gdt_coach import __version__
 from gdt_coach.ingest import ALL_INPUT_ADAPTERS, AdapterRegistry
-from gdt_coach.ingest.exceptions import IngestError
+from gdt_coach.ingest.exceptions import IngestError, UnsupportedFormatError
 from gdt_coach.models import Drawing
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
@@ -36,11 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
     check_parser = subparsers.add_parser(
         "check",
-        help="Check a YAML drawing against the GD&T rule engine.",
+        help="Check one or more YAML/CSV drawings against the GD&T rule engine.",
     )
     check_parser.add_argument(
-        "path",
-        help="Path to a YAML drawing file.",
+        "paths",
+        nargs="+",
+        metavar="path",
+        help=(
+            "One or more paths to check: a drawing file, or a directory "
+            "(scanned non-recursively) of drawing files. More than one "
+            "path, or any directory, switches to an aggregate batch report."
+        ),
     )
     check_parser.add_argument(
         "--category",
@@ -139,7 +146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "check":
         return _check(
-            args.path,
+            args.paths,
             categories=args.categories,
             standard=args.standard,
             json_output=args.json_output,
@@ -301,18 +308,236 @@ def _print_rule_detail(rule: Rule) -> None:
     print(rule.explanation)
 
 
+# --- Per-file result model (Sprint 16) --------------------------------------
+
+
+@dataclass(frozen=True)
+class _FileCheckSuccess:
+    """One file that loaded and was checked successfully."""
+
+    path: str
+    drawing: Drawing
+    findings: list[Finding]
+    rules_run: int
+
+    @property
+    def has_findings(self) -> bool:
+        """Whether this file would exit 1 under the existing single-file semantics."""
+        return bool(self.findings)
+
+
+@dataclass(frozen=True)
+class _FileCheckError:
+    """One input (a supplied path, or a path discovered while expanding a directory)
+    that could not be turned into a checked Drawing -- an expansion-time problem
+    (missing path, empty directory) or a load-time one (unsupported extension,
+    malformed input, failed domain validation)."""
+
+    path: str
+    error_type: str
+    message: str
+
+
+_FileCheckResult = _FileCheckSuccess | _FileCheckError
+
+
+@dataclass(frozen=True)
+class _ExpansionError:
+    """An input path argument that couldn't be expanded into any file to check."""
+
+    path: str
+    error_type: str
+    message: str
+
+
+def _known_extensions(adapter_registry: AdapterRegistry) -> set[str]:
+    """Every file extension any registered adapter claims, lower-cased.
+
+    Never hardcodes a format's extensions -- directory scanning stays
+    generic over whatever adapters happen to be registered, the same way
+    ``AdapterRegistry.resolve`` already is for a single explicit file.
+    """
+    return {ext.lower() for adapter in adapter_registry.all() for ext in adapter.file_extensions}
+
+
+def _expand_paths(
+    paths: list[str], adapter_registry: AdapterRegistry
+) -> list[Path | _ExpansionError]:
+    """Expand CLI path arguments into concrete candidate files, in deterministic order.
+
+    Each input argument becomes one of:
+    - a directory: its immediate (non-recursive) children whose extension is
+      known to `adapter_registry`, sorted by filename; an empty match is one
+      `_ExpansionError` for the directory itself
+    - an explicit file: itself, if it exists and its extension is supported;
+      a missing path or an unsupported extension is one `_ExpansionError`
+      each. Extension support is checked here via `adapter_registry.resolve`
+      -- the same call `_load_one_file` makes -- so "is this extension
+      supported" is never reimplemented, only invoked earlier.
+
+    Files are deduplicated by resolved (absolute, symlink-resolved) identity,
+    keeping only the first occurrence -- whether the duplicate came from two
+    explicit arguments, two overlapping directories, or an explicit file also
+    reachable through a directory argument.
+    """
+    known_extensions = _known_extensions(adapter_registry)
+    seen: set[Path] = set()
+    items: list[Path | _ExpansionError] = []
+
+    for raw in paths:
+        candidate = Path(raw)
+
+        if candidate.is_dir():
+            matches = sorted(
+                (
+                    child
+                    for child in candidate.iterdir()
+                    if child.is_file() and child.suffix.lower() in known_extensions
+                ),
+                key=lambda child: child.name,
+            )
+            if not matches:
+                items.append(
+                    _ExpansionError(
+                        path=raw,
+                        error_type="NoSupportedFilesError",
+                        message=f"no supported input files found in directory {raw!r}",
+                    )
+                )
+                continue
+            for child in matches:
+                key = child.resolve()
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(child)
+            continue
+
+        if not candidate.exists():
+            items.append(
+                _ExpansionError(
+                    path=raw,
+                    error_type="PathNotFoundError",
+                    message=f"path not found: {raw!r}",
+                )
+            )
+            continue
+
+        try:
+            adapter_registry.resolve(candidate)
+        except UnsupportedFormatError as error:
+            items.append(
+                _ExpansionError(path=raw, error_type="UnsupportedFormatError", message=str(error))
+            )
+            continue
+
+        key = candidate.resolve()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(candidate)
+
+    return items
+
+
+def _is_batch_mode(paths: list[str]) -> bool:
+    """More than one path, or any single path that's a directory, is batch mode.
+
+    A single directory that happens to expand to exactly one file still
+    produces an aggregate batch report -- the *arguments* decide the mode,
+    not how many files expansion happens to discover.
+    """
+    return len(paths) != 1 or Path(paths[0]).is_dir()
+
+
+def _load_one_file(path: Path, adapter_registry: AdapterRegistry) -> Drawing:
+    """Resolve and load `path` into a Drawing.
+
+    Raises `IngestError` or `OSError` on failure -- shared, unmodified by
+    Sprint 16, by both the single-file and batch-mode check paths, so
+    resolve/load validation is never duplicated between them.
+    """
+    adapter = adapter_registry.resolve(path)
+    return adapter.load(path)
+
+
+def _check_one_file(
+    path: Path,
+    *,
+    adapter_registry: AdapterRegistry,
+    registry: RuleRegistry,
+    categories: set[RuleCategory] | None,
+    standard: Standard | None,
+) -> _FileCheckResult:
+    try:
+        drawing = _load_one_file(path, adapter_registry)
+    except (IngestError, OSError) as error:
+        return _FileCheckError(path=str(path), error_type=type(error).__name__, message=str(error))
+
+    findings = RuleEngine(registry=registry).run(drawing, categories=categories, standard=standard)
+    rules_run = _count_matching_rules(registry, categories, standard)
+    return _FileCheckSuccess(
+        path=str(path), drawing=drawing, findings=findings, rules_run=rules_run
+    )
+
+
+# --- `check` dispatch --------------------------------------------------------
+
+
 def _check(
-    path: str,
+    paths: list[str],
     *,
     categories: list[str] | None = None,
     standard: str | None = None,
     json_output: bool = False,
     markdown_output: bool = False,
 ) -> int:
+    adapter_registry = _build_adapter_registry()
+    registry = _build_registry()
+
+    if _is_batch_mode(paths):
+        return _check_batch(
+            paths,
+            adapter_registry=adapter_registry,
+            registry=registry,
+            categories=categories,
+            standard=standard,
+            json_output=json_output,
+            markdown_output=markdown_output,
+        )
+
+    return _check_single_file(
+        paths[0],
+        adapter_registry=adapter_registry,
+        registry=registry,
+        categories=categories,
+        standard=standard,
+        json_output=json_output,
+        markdown_output=markdown_output,
+    )
+
+
+def _check_single_file(
+    path: str,
+    *,
+    adapter_registry: AdapterRegistry,
+    registry: RuleRegistry,
+    categories: list[str] | None,
+    standard: str | None,
+    json_output: bool,
+    markdown_output: bool,
+) -> int:
+    """Single-file compatibility mode -- byte-identical to Sprint 15.
+
+    Load-before-filter-parsing error precedence is preserved exactly (a
+    missing/malformed file is reported even if a filter value is also
+    invalid), which is why this isn't just a call into `_check_one_file`
+    (that helper assumes filters are already parsed, since batch mode
+    validates filters up front for all files at once -- see `_check_batch`).
+    """
     try:
         path_obj = Path(path)
-        adapter = _build_adapter_registry().resolve(path_obj)
-        drawing = adapter.load(path_obj)
+        drawing = _load_one_file(path_obj, adapter_registry)
     except (IngestError, OSError) as error:
         print(f"error: could not load {path!r}: {error}", file=sys.stderr)
         return 2
@@ -324,7 +549,6 @@ def _check(
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    registry = _build_registry()
     findings = RuleEngine(registry=registry).run(
         drawing, categories=parsed_categories, standard=parsed_standard
     )
@@ -340,10 +564,83 @@ def _check(
     return 1 if findings else 0
 
 
+def _check_batch(
+    paths: list[str],
+    *,
+    adapter_registry: AdapterRegistry,
+    registry: RuleRegistry,
+    categories: list[str] | None,
+    standard: str | None,
+    json_output: bool,
+    markdown_output: bool,
+) -> int:
+    """Batch mode: filters are validated for all files up front (an invalid
+    filter means no file is ever touched), then every resolved file is
+    checked and reported, even if some fail -- partial failure never stops
+    the rest of the batch from being processed."""
+    try:
+        parsed_categories = _parse_categories(categories)
+        parsed_standard = _parse_standard(standard)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+    items = _expand_paths(paths, adapter_registry)
+    files_discovered = sum(1 for item in items if isinstance(item, Path))
+
+    results: list[_FileCheckResult] = []
+    for item in items:
+        if isinstance(item, _ExpansionError):
+            results.append(
+                _FileCheckError(path=item.path, error_type=item.error_type, message=item.message)
+            )
+        else:
+            results.append(
+                _check_one_file(
+                    item,
+                    adapter_registry=adapter_registry,
+                    registry=registry,
+                    categories=parsed_categories,
+                    standard=parsed_standard,
+                )
+            )
+
+    if json_output:
+        _print_batch_json_report(
+            results, inputs_supplied=len(paths), files_discovered=files_discovered
+        )
+    elif markdown_output:
+        _print_batch_markdown_report(
+            results, inputs_supplied=len(paths), files_discovered=files_discovered
+        )
+    else:
+        _print_batch_text_report(
+            results, inputs_supplied=len(paths), files_discovered=files_discovered
+        )
+
+    return _batch_exit_code(results)
+
+
+def _batch_exit_code(results: list[_FileCheckResult]) -> int:
+    if any(isinstance(result, _FileCheckError) for result in results):
+        return 2
+    if any(isinstance(result, _FileCheckSuccess) and result.has_findings for result in results):
+        return 1
+    return 0
+
+
 def _count_by_severity(findings: list[Finding]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for finding in findings:
         counts[finding.severity.value] = counts.get(finding.severity.value, 0) + 1
+    return counts
+
+
+def _aggregate_severity_counts(successes: list[_FileCheckSuccess]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in successes:
+        for severity, count in _count_by_severity(result.findings).items():
+            counts[severity] = counts.get(severity, 0) + count
     return counts
 
 
@@ -384,6 +681,139 @@ def _print_json_report(
     print(json.dumps(report, indent=2))
 
 
+# --- Batch reports (Sprint 16) -----------------------------------------------
+
+_BATCH_TEXT_SEPARATOR = "=" * 70
+
+
+def _print_batch_text_report(
+    results: list[_FileCheckResult], *, inputs_supplied: int, files_discovered: int
+) -> None:
+    for result in results:
+        print(_BATCH_TEXT_SEPARATOR)
+        if isinstance(result, _FileCheckSuccess):
+            _print_report(result.path, result.drawing, result.findings, rules_run=result.rules_run)
+        else:
+            print(f"Could not check {result.path!r}")
+            print(f"error [{result.error_type}]: {result.message}")
+        print()
+
+    print(_BATCH_TEXT_SEPARATOR)
+    _print_batch_summary_text(
+        results, inputs_supplied=inputs_supplied, files_discovered=files_discovered
+    )
+
+
+def _print_batch_summary_text(
+    results: list[_FileCheckResult], *, inputs_supplied: int, files_discovered: int
+) -> None:
+    successes = [result for result in results if isinstance(result, _FileCheckSuccess)]
+    errors = [result for result in results if isinstance(result, _FileCheckError)]
+    with_findings = [result for result in successes if result.has_findings]
+    total_findings = sum(len(result.findings) for result in successes)
+    severity_counts = _aggregate_severity_counts(successes)
+
+    print("Summary")
+    print(f"Input items supplied: {inputs_supplied}")
+    print(f"Files discovered: {files_discovered}")
+    print(f"Files checked: {len(successes)}")
+    print(f"Files failed: {len(errors)}")
+    print(f"Files with findings: {len(with_findings)}")
+    print(f"Total findings: {total_findings}")
+    if severity_counts:
+        print(f"By severity: {_format_severity_counts(severity_counts)}")
+
+
+def _batch_result_json(result: _FileCheckResult) -> dict[str, object]:
+    if isinstance(result, _FileCheckSuccess):
+        return {
+            "path": result.path,
+            "status": "checked",
+            "drawing": {"id": result.drawing.id, "title": result.drawing.title},
+            "rules_run": result.rules_run,
+            "findings": [finding.model_dump(mode="json") for finding in result.findings],
+        }
+    return {
+        "path": result.path,
+        "status": "error",
+        "error": {"type": result.error_type, "message": result.message},
+    }
+
+
+def _print_batch_json_report(
+    results: list[_FileCheckResult], *, inputs_supplied: int, files_discovered: int
+) -> None:
+    successes = [result for result in results if isinstance(result, _FileCheckSuccess)]
+    errors = [result for result in results if isinstance(result, _FileCheckError)]
+    with_findings = [result for result in successes if result.has_findings]
+    total_findings = sum(len(result.findings) for result in successes)
+
+    report = {
+        "results": [_batch_result_json(result) for result in results],
+        "summary": {
+            "inputs_supplied": inputs_supplied,
+            "files_discovered": files_discovered,
+            "files_checked": len(successes),
+            "files_failed": len(errors),
+            "files_with_findings": len(with_findings),
+            "total_findings": total_findings,
+            "severity_counts": _aggregate_severity_counts(successes),
+        },
+    }
+    print(json.dumps(report, indent=2))
+
+
+def _print_batch_markdown_report(
+    results: list[_FileCheckResult], *, inputs_supplied: int, files_discovered: int
+) -> None:
+    successes = [result for result in results if isinstance(result, _FileCheckSuccess)]
+    errors = [result for result in results if isinstance(result, _FileCheckError)]
+    with_findings = [result for result in successes if result.has_findings]
+    total_findings = sum(len(result.findings) for result in successes)
+    severity_counts = _aggregate_severity_counts(successes)
+
+    print("# GD&T Batch Check Report")
+    print()
+    print("## Summary")
+    print()
+    print("| Field | Value |")
+    print("|---|---|")
+    print(_markdown_table_row("Input items supplied", str(inputs_supplied)))
+    print(_markdown_table_row("Files discovered", str(files_discovered)))
+    print(_markdown_table_row("Files checked", str(len(successes))))
+    print(_markdown_table_row("Files failed", str(len(errors))))
+    print(_markdown_table_row("Files with findings", str(len(with_findings))))
+    print(_markdown_table_row("Total findings", str(total_findings)))
+    print()
+
+    if severity_counts:
+        print("| Severity | Count |")
+        print("|---|---:|")
+        for severity in _MARKDOWN_SEVERITY_ORDER:
+            count = severity_counts.get(severity.value, 0)
+            if count:
+                print(_markdown_table_row(severity.value.title(), str(count)))
+        print()
+
+    print("## Results")
+    print()
+    for result in results:
+        print(f"### `{_escape_markdown(result.path)}`")
+        print()
+        if isinstance(result, _FileCheckSuccess):
+            _markdown_drawing_table(result.path, result.drawing, rules_run=result.rules_run)
+            print()
+            _markdown_severity_summary_table(result.findings)
+            print()
+            _markdown_findings_section(result.findings, heading_level=4)
+            print()
+        else:
+            error_type = _escape_markdown(result.error_type)
+            error_message = _escape_markdown(result.message)
+            print(f"**Error ({error_type}):** {error_message}")
+            print()
+
+
 _MARKDOWN_SEVERITY_ORDER: tuple[Severity, ...] = (
     Severity.CRITICAL,
     Severity.ERROR,
@@ -411,23 +841,16 @@ def _markdown_table_row(*cells: str) -> str:
     return "| " + " | ".join(_escape_markdown(cell) for cell in cells) + " |"
 
 
-def _print_markdown_report(
-    path: str, drawing: Drawing, findings: list[Finding], *, rules_run: int
-) -> None:
-    print("# GD&T Check Report")
-    print()
-    print("## Drawing")
-    print()
+def _markdown_drawing_table(path: str, drawing: Drawing, *, rules_run: int) -> None:
     print("| Field | Value |")
     print("|---|---|")
     print(_markdown_table_row("Source", path))
     print(_markdown_table_row("Drawing ID", drawing.id))
     print(_markdown_table_row("Title", drawing.title))
     print(_markdown_table_row("Rules run", str(rules_run)))
-    print()
 
-    print("## Summary")
-    print()
+
+def _markdown_severity_summary_table(findings: list[Finding]) -> None:
     print("| Severity | Count |")
     print("|---|---:|")
     counts = _count_by_severity(findings)
@@ -436,16 +859,18 @@ def _print_markdown_report(
         if count:
             print(_markdown_table_row(severity.value.title(), str(count)))
     print(f"| **Total** | {len(findings)} |")
-    print()
 
-    print("## Findings")
-    print()
+
+def _markdown_findings_section(findings: list[Finding], *, heading_level: int = 3) -> None:
     if not findings:
         print("No findings were found.")
         return
 
+    heading_marker = "#" * heading_level
     for finding in findings:
-        print(f"### {finding.severity.value.upper()} - {_escape_markdown(finding.rule_id)}")
+        severity_label = finding.severity.value.upper()
+        rule_id = _escape_markdown(finding.rule_id)
+        print(f"{heading_marker} {severity_label} - {rule_id}")
         print()
         print(f"**Rule:** {_escape_markdown(finding.title)}")
         print()
@@ -458,6 +883,26 @@ def _print_markdown_report(
             print()
             print(f"**Location:** {', '.join(locations)}")
         print()
+
+
+def _print_markdown_report(
+    path: str, drawing: Drawing, findings: list[Finding], *, rules_run: int
+) -> None:
+    print("# GD&T Check Report")
+    print()
+    print("## Drawing")
+    print()
+    _markdown_drawing_table(path, drawing, rules_run=rules_run)
+    print()
+
+    print("## Summary")
+    print()
+    _markdown_severity_summary_table(findings)
+    print()
+
+    print("## Findings")
+    print()
+    _markdown_findings_section(findings)
 
 
 def _finding_locator_pairs(finding: Finding) -> list[tuple[str, str]]:

@@ -144,6 +144,106 @@ Exit codes are otherwise exactly the same as plain-text/JSON output:
 input/argument error — `--markdown` only changes presentation, never
 which findings are reported.
 
+## Checking multiple files or a directory (Sprint 16)
+
+`gdt-coach check` accepts more than one path:
+
+```bash
+gdt-coach check drawing-a.yaml drawing-b.csv         # multiple explicit files
+gdt-coach check drawings/                            # a directory of drawings
+gdt-coach check drawings/ extra-drawing.yaml         # mixed
+```
+
+More than one path, or any path that's a directory, switches from the
+single-file report to an aggregate **batch report** in the same
+text/JSON/Markdown formats `check` already produces — nothing new to
+learn per format, just one report covering every file instead of one.
+
+- **Directory scanning is non-recursive.** Only a directory's immediate
+  files are considered; a subdirectory inside it is silently not
+  descended into. There's no glob syntax — pass a directory and let it
+  scan, or list files explicitly.
+- **Which extensions count as "supported" is never hardcoded.** A
+  directory scan includes exactly the extensions the registered
+  `InputAdapter`s claim (`.yaml`/`.yml`/`.csv` today, case-insensitive)
+  — adding a future input format automatically extends what directory
+  scanning picks up, with no change to this logic.
+- **The same file is only ever checked once.** Supplying it explicitly
+  and also having it turn up inside a directory argument (or listing
+  two overlapping directories) is deduplicated by resolved path
+  identity; only the first occurrence is checked and reported.
+- **A single explicit file is still the exact single-file report** from
+  the sections above, byte-for-byte — batch mode only activates for
+  more than one path argument, or a directory. A directory that happens
+  to contain exactly one matching file still produces the aggregate
+  batch shape, not the single-file one, since it's the *arguments* that
+  decide the mode, not how many files happen to be found.
+- **Partial failure never stops the batch.** A missing path, an
+  unsupported extension, or a malformed file is reported inline (in
+  whichever format was requested) as a failed entry, and every other
+  file is still checked and reported.
+
+A real two-file run (path separators in batch-mode output follow the
+OS — this capture is from Windows; a Linux/macOS/CI run shows `/`):
+
+```bash
+$ gdt-coach check examples/valid_position.yaml examples/invalid_flatness_with_datum.yaml
+======================================================================
+Checked examples\valid_position.yaml -- drawing 'dwg-001' ('Mounting Bracket')
+Rules run: 20
+
+No findings.
+
+======================================================================
+Checked examples\invalid_flatness_with_datum.yaml -- drawing 'dwg-002' ('Cover Plate')
+Rules run: 20
+
+[ERROR] flatness-no-datum-references: Flatness cannot reference datums
+  flatness feature control frame 'fcf-1' references datum(s) ['A'], but flatness must not reference any datum
+  location: feature=feat-surface-1 fcf=fcf-1
+
+1 finding(s): 1 error
+
+======================================================================
+Summary
+Input items supplied: 2
+Files discovered: 2
+Files checked: 2
+Files failed: 0
+Files with findings: 1
+Total findings: 1
+By severity: 1 error
+```
+
+`--json` produces `{"results": [...], "summary": {...}}` — one entry
+per file (`"status": "checked"` with `drawing`/`rules_run`/`findings`,
+or `"status": "error"` with `{"type", "message"}`) plus aggregate
+counts (`inputs_supplied`, `files_discovered`, `files_checked`,
+`files_failed`, `files_with_findings`, `total_findings`,
+`severity_counts`). `--markdown` produces a `# GD&T Batch Check
+Report` with a `## Summary` table and one `### \`<path>\`` section per
+file under `## Results`, reusing the same escaping rules as the
+single-file Markdown report.
+
+**Exit codes** generalize the single-file rule across the whole batch:
+`0` if every file checked clean, `1` if every file at least loaded and
+any of them has a finding (any severity) but nothing failed to load,
+`2` if any path couldn't be resolved, loaded, or parsed — matching
+`check`'s existing "any load/argument error is exit 2" precedent, now
+applied per-file across the batch instead of to a single file.
+
+A compact CI example — check every drawing in the repository and post
+the result as a job summary:
+
+```yaml
+- name: Check GD&T drawings
+  run: gdt-coach check drawings/ --markdown >> "$GITHUB_STEP_SUMMARY"
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#batch-mode-sprint-16) for the
+full design, including exactly how single-file mode is kept
+byte-identical.
+
 ## CSV input: a second, narrow format
 
 `gdt-coach check drawing.csv` works the same as YAML — same rule

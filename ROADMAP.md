@@ -138,7 +138,7 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Testing
 
-- 438 tests, 99% line coverage, run on every push via CI
+- 486 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -245,6 +245,45 @@ the old hand-maintained table, and documented per-rule limitations.
   including a real Windows console-encoding bug (a non-ASCII em dash
   in the finding heading was writing invalid UTF-8 bytes to stdout on
   a non-UTF-8 codepage) found and fixed during implementation
+
+### Batch checking (Sprint 16)
+
+- `gdt-coach check <path> [<path> ...]` — more than one path, or any
+  path that's a directory, switches from the single-file report to an
+  aggregate batch report; a single explicit file stays byte-identical
+  to Sprint 15, unchanged
+- Directory scanning is non-recursive (immediate children only, no
+  glob syntax) and extension-driven entirely through
+  `AdapterRegistry`/`ALL_INPUT_ADAPTERS` — never a hardcoded
+  `.yaml`/`.csv` list — so a future input format automatically extends
+  what a directory scan picks up
+- Path expansion (`_expand_paths`) deduplicates by resolved path
+  identity (first occurrence wins, regardless of whether the duplicate
+  came from two explicit arguments, overlapping directories, or an
+  explicit file also reachable through a directory) and records —
+  never silently drops — a missing explicit path, an unsupported
+  explicit extension, or a directory with no supported files as a
+  per-item error
+- Every batch result is one of two frozen dataclasses
+  (`_FileCheckSuccess`/`_FileCheckError`), rendered identically across
+  text, JSON (`{"results": [...], "summary": {...}}`, always valid
+  JSON even on partial failure — per-file errors live in the body, not
+  only on stderr), and Markdown (`# GD&T Batch Check Report`, reusing
+  the Sprint 15 escaping/table helpers)
+- Partial failure never stops the batch: every resolved file is still
+  checked and reported even when another one failed to load
+- Exit codes generalize the single-file rule across the whole batch:
+  `0` all clean, `1` any finding but nothing failed to load, `2` any
+  path/load/parse/filter error — filters are validated once, up front,
+  before any file in a batch is touched, so an invalid filter checks
+  nothing at all rather than partially reporting
+- No change to `Finding`, `RuleEngine`, `RuleRegistry`, any domain
+  model, or any adapter; no glob parsing, no recursion, no
+  concurrency, no new output-file flag, no new runtime dependency
+- See `ARCHITECTURE.md#batch-mode-sprint-16` for the full design,
+  including exactly how single-file mode is kept byte-identical and
+  why filter-parsing order deliberately differs between single-file
+  and batch mode
 
 ## Planned
 

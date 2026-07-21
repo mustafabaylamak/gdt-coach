@@ -564,7 +564,7 @@ actually inspecting both construction paths:
 built with `argparse` subparsers.
 
 - `gdt-coach --version` / `gdt-coach --help`.
-- `gdt-coach check <path> [--category CATEGORY]... [--standard STANDARD] [--json|--markdown]`
+- `gdt-coach check <path> [<path> ...] [--category CATEGORY]... [--standard STANDARD] [--json|--markdown]`
   — the only place in the codebase that wires the ingest layer to the
   rule engine:
   1. (Sprint 13) An `AdapterRegistry` is built from `ALL_INPUT_ADAPTERS`
@@ -573,7 +573,10 @@ built with `argparse` subparsers.
      `UnsupportedFormatError` for an unrecognized extension) or
      `OSError` (e.g. a missing file) is caught, printed to stderr, and
      maps to **exit code 2** — the same catch clause as before Sprint
-     13; only what can raise into it changed.
+     13; only what can raise into it changed. (Sprint 16: `path` is
+     `nargs="+"`; a single explicit file still runs through exactly
+     this single-file path — see "Batch mode (Sprint 16)" below for
+     what changes when more than one path, or a directory, is given.)
   2. `--category` (repeatable) and `--standard` are parsed into a
      `set[RuleCategory] | None` and `Standard | None` and passed
      straight through to `RuleEngine.run(categories=, standard=)` — the
@@ -683,6 +686,119 @@ docstrings/comments, never in printed output; the heading now uses a
 plain ASCII hyphen (`SEVERITY - rule-id`), restoring that invariant.
 This is why the CLI's printed output — in every mode, not just
 Markdown — should stay ASCII-only going forward.
+
+### Batch mode (Sprint 16)
+
+`check`'s `path` argument became `nargs="+"`. Whether an invocation
+runs single-file mode (unchanged since Sprint 15) or batch mode is
+decided by `_is_batch_mode` purely from the raw arguments — `len(paths)
+!= 1 or Path(paths[0]).is_dir()` — before any expansion happens, so a
+directory that happens to contain exactly one matching file still
+produces the aggregate batch report, not the single-file one; it's the
+*arguments* that pick the mode, not how many files are eventually
+discovered.
+
+**Single-file compatibility.** `_check_single_file` is untouched
+Sprint-15 code, only moved into its own function and now receiving an
+already-built `AdapterRegistry`/`RuleRegistry` from `_check` instead of
+building its own (those builds are pure and side-effect-free, so
+hoisting them changes nothing observable). It deliberately does *not*
+route through the batch-mode per-file helper (`_check_one_file`)
+because its error precedence must stay exact: load is attempted
+before filters are parsed, so a missing/malformed file is reported
+even when a filter value is also invalid — a combined-error ordering
+Sprint 15 never had a test for but that byte-identical output depends
+on regardless. `_load_one_file` (the two-line `resolve()` +
+`load()` pair) is the one piece factored out and shared with batch
+mode, so resolve/load validation itself is never duplicated between
+the two paths, only the surrounding error-handling shape differs.
+
+**Path expansion (`_expand_paths`).** A focused, pure function:
+`list[str] -> list[Path | _ExpansionError]`, called once by
+`_check_batch` before any file is loaded. Per input argument:
+- a directory is scanned non-recursively (`Path.iterdir()`, which
+  never descends) and filtered to files whose suffix (lower-cased) is
+  in `_known_extensions(adapter_registry)` — built from
+  `AdapterRegistry.all()`'s `file_extensions`, never a hardcoded
+  `.yaml`/`.csv` list, so a future adapter automatically extends what
+  directory scanning picks up; matches are sorted by filename for
+  determinism. An empty match is one `_ExpansionError`
+  (`NoSupportedFilesError`) for the directory itself, not silently
+  skipped.
+- an explicit path is checked for existence (`PathNotFoundError` if
+  missing) and, if it exists, its extension is checked immediately via
+  `adapter_registry.resolve(candidate)` — reusing (not reimplementing)
+  the exact same extension-matching `_load_one_file` would use anyway,
+  just invoked one step earlier so an unsupported extension is caught
+  during expansion rather than surfacing only once loading starts. An
+  unsupported extension is one `_ExpansionError`
+  (`UnsupportedFormatError`).
+- every resolved file is deduplicated by `Path.resolve()` identity
+  (absolute, symlink-resolved) — first occurrence wins, whether the
+  duplicate came from two explicit arguments, two overlapping
+  directories, or an explicit file also reachable through a directory
+  argument — so "checked exactly once" holds regardless of how a
+  duplicate was introduced.
+
+**Per-file result model.** Two frozen dataclasses, `_FileCheckSuccess`
+(path, drawing, findings, rules_run, plus a `has_findings` property —
+the per-file equivalent of the single-file exit-1 condition) and
+`_FileCheckError` (path, error_type, message), unioned as
+`_FileCheckResult`. `_check_one_file` produces one of these per
+resolved `Path` by calling `_load_one_file` (catching `IngestError`/
+`OSError` exactly like single-file mode) and then running the engine;
+`_check_batch` converts each `_ExpansionError` into a `_FileCheckError`
+directly, so every input argument — however it failed, whenever it
+failed — ends up as exactly one entry in one flat, uniform
+`list[_FileCheckResult]` that every renderer (text/JSON/Markdown) and
+`_batch_exit_code` consume identically. None of this touches `Finding`,
+`RuleEngine`, `RuleRegistry`, any domain model, or any adapter.
+
+**Filter timing differs from single-file mode on purpose.**
+`_check_batch` parses `--category`/`--standard` *before* calling
+`_expand_paths` at all — an invalid filter value means zero files are
+ever touched (stdout stays empty, matching the "no partial checking
+begins" requirement), unlike single-file mode's load-then-filter
+order. Once parsed, the same `set[RuleCategory] | None`/
+`Standard | None` values are passed to every file's `_check_one_file`
+call, so a filter behaves identically across every file in a batch —
+there was never a second filter-parsing code path to keep in sync.
+
+**Exit codes** generalize the single-file rule (`_batch_exit_code`):
+`2` if any result is a `_FileCheckError` (expansion or load failure,
+regardless of how many files also succeeded), else `1` if any
+`_FileCheckSuccess.has_findings` is true, else `0`. Partial failure
+never stops the batch — every resolved file is still checked and every
+result still rendered, even when the overall exit code is 2.
+
+**Reports.** All three formats are built from the same
+`list[_FileCheckResult]` plus two counts (`inputs_supplied`,
+`files_discovered`); each aggregates
+`files_checked`/`files_failed`/`files_with_findings`/`total_findings`/
+per-severity totals (`_aggregate_severity_counts`, summing
+`_count_by_severity` across every successful file) the same way.
+- Text (`_print_batch_text_report`) reuses `_print_report` verbatim
+  for each success — "the same information as the existing text
+  renderer," not a reimplementation — separated by a plain ASCII
+  `"=" * 70` divider, with a matching `Could not check '<path>'` /
+  `error [<type>]: <message>` block for failures, followed by a
+  `Summary` block.
+- JSON (`_print_batch_json_report`) is one `{"results": [...],
+  "summary": {...}}` object; every per-file error is represented
+  inside the JSON body (`{"status": "error", "error": {"type",
+  "message"}}`), never only written to stderr, so `--json` output
+  always stays one valid, parseable JSON document even on partial
+  failure.
+- Markdown (`_print_batch_markdown_report`) reuses the Sprint 15
+  table/escaping helpers (`_markdown_drawing_table`,
+  `_markdown_severity_summary_table`, `_escape_markdown`) under a
+  `### \`<path>\`` heading per file. Per-finding headings inside a
+  batch result use `_markdown_findings_section(..., heading_level=4)`
+  instead of the single-file default of 3, so a finding heading nests
+  under its result heading rather than sitting at the same level —
+  the one parameter added to that Sprint 15 helper, specifically to
+  keep the heading hierarchy correct once findings live one level
+  deeper than they did in a standalone report.
 
 ## Documentation drift guard
 
