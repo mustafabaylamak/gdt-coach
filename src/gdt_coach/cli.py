@@ -18,6 +18,7 @@ from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.engine import RuleEngine
 from gdt_coach.rules.finding import Finding
 from gdt_coach.rules.registry import RuleRegistry
+from gdt_coach.rules.severity import Severity
 from gdt_coach.rules.standard import Standard
 
 
@@ -60,11 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
             + ", ".join(standard.value for standard in Standard)
         ),
     )
-    check_parser.add_argument(
+    output_format_group = check_parser.add_mutually_exclusive_group()
+    output_format_group.add_argument(
         "--json",
         dest="json_output",
         action="store_true",
         help="Emit a JSON report instead of the plain-text report.",
+    )
+    output_format_group.add_argument(
+        "--markdown",
+        dest="markdown_output",
+        action="store_true",
+        help="Emit a Markdown report instead of the plain-text report.",
     )
 
     rules_parser = subparsers.add_parser(
@@ -135,6 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             categories=args.categories,
             standard=args.standard,
             json_output=args.json_output,
+            markdown_output=args.markdown_output,
         )
 
     if args.command == "rules":
@@ -298,6 +307,7 @@ def _check(
     categories: list[str] | None = None,
     standard: str | None = None,
     json_output: bool = False,
+    markdown_output: bool = False,
 ) -> int:
     try:
         path_obj = Path(path)
@@ -322,6 +332,8 @@ def _check(
 
     if json_output:
         _print_json_report(path, drawing, findings, rules_run=rules_run)
+    elif markdown_output:
+        _print_markdown_report(path, drawing, findings, rules_run=rules_run)
     else:
         _print_report(path, drawing, findings, rules_run=rules_run)
 
@@ -372,12 +384,86 @@ def _print_json_report(
     print(json.dumps(report, indent=2))
 
 
-def _format_finding(finding: Finding) -> str:
-    lines = [f"[{finding.severity.value.upper()}] {finding.rule_id}: {finding.title}"]
-    lines.append(f"  {finding.message}")
+_MARKDOWN_SEVERITY_ORDER: tuple[Severity, ...] = (
+    Severity.CRITICAL,
+    Severity.ERROR,
+    Severity.WARNING,
+    Severity.INFO,
+)
 
-    locations = [
-        f"{name}={value}"
+
+def _escape_markdown(value: str) -> str:
+    """Neutralize Markdown-sensitive characters in externally-sourced text.
+
+    Applied to every id/title/message pulled from drawing or finding data
+    before it's embedded in the Markdown report, so a value containing
+    ``|`` can't break a table row, a leading ``[`` can't be read as a link,
+    and ``<``/``>`` can't be misread as inline HTML by a Markdown renderer.
+    Newlines are collapsed to a space so every field stays on one line.
+    """
+    escaped = value.replace("\\", "\\\\")
+    for char in ("`", "*", "_", "|", "<", ">", "["):
+        escaped = escaped.replace(char, f"\\{char}")
+    return escaped.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+
+def _markdown_table_row(*cells: str) -> str:
+    return "| " + " | ".join(_escape_markdown(cell) for cell in cells) + " |"
+
+
+def _print_markdown_report(
+    path: str, drawing: Drawing, findings: list[Finding], *, rules_run: int
+) -> None:
+    print("# GD&T Check Report")
+    print()
+    print("## Drawing")
+    print()
+    print("| Field | Value |")
+    print("|---|---|")
+    print(_markdown_table_row("Source", path))
+    print(_markdown_table_row("Drawing ID", drawing.id))
+    print(_markdown_table_row("Title", drawing.title))
+    print(_markdown_table_row("Rules run", str(rules_run)))
+    print()
+
+    print("## Summary")
+    print()
+    print("| Severity | Count |")
+    print("|---|---:|")
+    counts = _count_by_severity(findings)
+    for severity in _MARKDOWN_SEVERITY_ORDER:
+        count = counts.get(severity.value, 0)
+        if count:
+            print(_markdown_table_row(severity.value.title(), str(count)))
+    print(f"| **Total** | {len(findings)} |")
+    print()
+
+    print("## Findings")
+    print()
+    if not findings:
+        print("No findings were found.")
+        return
+
+    for finding in findings:
+        print(f"### {finding.severity.value.upper()} - {_escape_markdown(finding.rule_id)}")
+        print()
+        print(f"**Rule:** {_escape_markdown(finding.title)}")
+        print()
+        print(_escape_markdown(finding.message))
+
+        locations = [
+            f"{name}={_escape_markdown(value)}" for name, value in _finding_locator_pairs(finding)
+        ]
+        if locations:
+            print()
+            print(f"**Location:** {', '.join(locations)}")
+        print()
+
+
+def _finding_locator_pairs(finding: Finding) -> list[tuple[str, str]]:
+    """The finding's non-``None`` locator fields, in a fixed display order."""
+    return [
+        (name, value)
         for name, value in (
             ("feature", finding.feature_id),
             ("dimension", finding.dimension_id),
@@ -386,6 +472,13 @@ def _format_finding(finding: Finding) -> str:
         )
         if value is not None
     ]
+
+
+def _format_finding(finding: Finding) -> str:
+    lines = [f"[{finding.severity.value.upper()}] {finding.rule_id}: {finding.title}"]
+    lines.append(f"  {finding.message}")
+
+    locations = [f"{name}={value}" for name, value in _finding_locator_pairs(finding)]
     if locations:
         lines.append(f"  location: {' '.join(locations)}")
 

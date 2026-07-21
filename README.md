@@ -91,8 +91,58 @@ exact output (generated from the real CLI, not hand-written).
 
 Exit codes: `0` no findings, `1` one or more findings, `2` the input
 couldn't be checked (malformed input, an unsupported file extension,
-missing file, failed domain-model validation, or an invalid
-`--category`/`--standard` value).
+missing file, failed domain-model validation, an invalid
+`--category`/`--standard` value, or passing `--json` and `--markdown`
+together).
+
+## Markdown reports for CI and review
+
+`--markdown` renders the same check as a GitHub-flavored Markdown
+report instead of the default plain-text output — meant for pasting
+into a CI job summary (e.g. `$GITHUB_STEP_SUMMARY`) or a pull-request
+comment, so a GD&T issue is visible in the review itself instead of
+buried in a build log:
+
+```bash
+gdt-coach check examples/invalid_flatness_with_datum.yaml --markdown
+```
+
+```
+# GD&T Check Report
+
+## Drawing
+
+| Field | Value |
+|---|---|
+| Source | examples/invalid\_flatness\_with\_datum.yaml |
+| Drawing ID | dwg-002 |
+| Title | Cover Plate |
+| Rules run | 20 |
+
+## Summary
+
+| Severity | Count |
+|---|---:|
+| Error | 1 |
+| **Total** | 1 |
+
+## Findings
+
+### ERROR - flatness-no-datum-references
+
+**Rule:** Flatness cannot reference datums
+
+flatness feature control frame 'fcf-1' references datum(s) \['A'], but flatness must not reference any datum
+
+**Location:** feature=feat-surface-1, fcf=fcf-1
+```
+
+`--markdown` is mutually exclusive with `--json` — passing both is
+rejected by `argparse` before anything runs (stderr, exit code 2).
+Exit codes are otherwise exactly the same as plain-text/JSON output:
+`0` no findings, `1` one or more findings (any severity), `2` an
+input/argument error — `--markdown` only changes presentation, never
+which findings are reported.
 
 ## CSV input: a second, narrow format
 

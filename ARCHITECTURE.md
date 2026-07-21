@@ -564,7 +564,7 @@ actually inspecting both construction paths:
 built with `argparse` subparsers.
 
 - `gdt-coach --version` / `gdt-coach --help`.
-- `gdt-coach check <path> [--category CATEGORY]... [--standard STANDARD] [--json]`
+- `gdt-coach check <path> [--category CATEGORY]... [--standard STANDARD] [--json|--markdown]`
   — the only place in the codebase that wires the ingest layer to the
   rule engine:
   1. (Sprint 13) An `AdapterRegistry` is built from `ALL_INPUT_ADAPTERS`
@@ -590,14 +590,20 @@ built with `argparse` subparsers.
      `feature`/`dimension`/`fcf`/`datum` that are set), followed by a
      per-severity summary count. `--json` instead prints one JSON
      object (`path`, `drawing`, `rules_run`, `findings` — each
-     `Finding.model_dump(mode="json")` — and `summary`); errors are
-     always plain text on stderr regardless of `--json`, since a
-     load/filter failure means there is no report to format.
+     `Finding.model_dump(mode="json")` — and `summary`); `--markdown`
+     (Sprint 15) prints a GitHub-flavored Markdown report — see
+     "Markdown report (Sprint 15)" below. All three read from the same
+     `findings`/`rules_run`/`drawing` values computed once in `_check`;
+     the format flags only change which `_print_*_report` function
+     renders them. Errors are always plain text on stderr regardless of
+     `--json`/`--markdown`, since a load/filter failure means there is
+     no report to format.
   5. **Exit code 0** if there are no findings, **exit code 1** if there
      are any (severity is not currently weighed — any finding at all
-     means exit 1), **exit code 2** for any load or filter-value error.
-- There is no Markdown/HTML report output yet — only plain-text and
-  JSON as described above.
+     means exit 1), **exit code 2** for any load or filter-value error,
+     or (Sprint 15) for passing `--json` and `--markdown` together.
+- There is no HTML report output — only plain-text, JSON, and (Sprint
+  15) Markdown, as described above.
 - `gdt-coach rules list [--category CATEGORY]... [--standard STANDARD] [--json]`
   — the live rule catalog, added in Sprint 12 specifically to replace
   a hand-maintained table (see "Concrete rules" above):
@@ -624,6 +630,59 @@ built with `argparse` subparsers.
 - Neither `rules` subcommand touches `RuleEngine`, `RuleRegistry`,
   `Rule`, or any domain model — both are pure enumeration/formatting
   over data every rule already carries as class attributes.
+
+### Markdown report (Sprint 15)
+
+`_print_markdown_report` (`cli.py`) renders a GitHub-flavored Markdown
+report from exactly the same `Drawing`/`list[Finding]`/`rules_run`
+values the text and JSON reports already use — no new data, no change
+to `Finding`, `RuleEngine`, or any domain model. Structure: `# GD&T
+Check Report`, a `## Drawing` table (source path, drawing id, title,
+rules run), a `## Summary` table (per-severity counts in a fixed
+`CRITICAL > ERROR > WARNING > INFO` order — not insertion order, so
+the table is deterministic regardless of which rules happened to fire
+first — plus a `**Total**` row), and a `## Findings` section: one
+`### SEVERITY - rule-id` block per finding (in the same order
+`RuleEngine.run` already returns them, i.e. rule-registration order —
+the same order the text/JSON reports use, not re-sorted), each with a
+`**Rule:**` line, the message, and a `**Location:**` line built from
+the same locator fields (`feature`/`dimension`/`fcf`/`datum`) via a
+`_finding_locator_pairs` helper shared with the text formatter (the
+one behavioral difference: text output labels it `location:`
+lower-case space-joined, Markdown labels it `**Location:**`
+comma-joined — different presentation, same four fields, same
+"omit unset ones" rule). No findings: `## Findings` states plainly
+"No findings were found." — not silently empty.
+
+**Escaping.** Every value that ultimately comes from drawing/finding
+data (ids, titles, messages, the source path) passes through
+`_escape_markdown` before being embedded: backslash first, then
+`` ` * _ | < > [ ``, then newlines collapsed to a space. This is
+deliberately broader than "just don't break the table": `|` is escaped
+because it would break a table cell, a leading `[` is escaped so a
+value can't be read as a Markdown link opener, and `<`/`>` are escaped
+so a value can never be interpreted as inline HTML by a renderer —
+consistent with the constraint that this feature introduces no HTML.
+Escaping applies uniformly to every field including the source path,
+so a Windows path's backslashes render doubled (`examples\\foo.yaml`
+→ `examples\\\\foo.yaml` on the wire); this is a deliberate, accepted
+cosmetic trade-off for not having a separate escaping rule per field.
+No Markdown templating library was added — it's plain `print()` calls
+building GitHub-table syntax, the same style `_print_report` already
+uses for plain text.
+
+**A real encoding bug found and fixed during implementation:** the
+first version of the per-finding heading used a Unicode em dash
+(`—`) as the separator. On Windows, `print()`'s target encoding
+follows the console codepage (observed as `cp1254` in this
+environment, not UTF-8), so the em dash was written out as a single
+non-UTF-8 byte (`0x97`) — invalid input for any downstream tool
+(a CI job-summary file, a PR-comment API) expecting UTF-8. Every other
+non-ASCII character anywhere in this codebase lives only in
+docstrings/comments, never in printed output; the heading now uses a
+plain ASCII hyphen (`SEVERITY - rule-id`), restoring that invariant.
+This is why the CLI's printed output — in every mode, not just
+Markdown — should stay ASCII-only going forward.
 
 ## Documentation drift guard
 

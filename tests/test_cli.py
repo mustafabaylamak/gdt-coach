@@ -8,11 +8,16 @@ import pytest
 from gdt_coach import __version__
 from gdt_coach.cli import (
     _count_by_severity,
+    _escape_markdown,
+    _finding_locator_pairs,
     _format_finding,
     _format_severity_counts,
+    _markdown_table_row,
+    _print_markdown_report,
     build_parser,
     main,
 )
+from gdt_coach.models import Drawing
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.finding import Finding
@@ -573,3 +578,327 @@ def test_rules_show_unknown_rule_id_with_json_flag_still_plain_text_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no rule registered with id" in captured.err
+
+
+# --- backward compatibility: default text / JSON output unchanged ----------
+
+
+def test_check_default_text_output_is_unchanged(capsys: pytest.CaptureFixture[str]) -> None:
+    """Adding --markdown must not change a single byte of the default text report."""
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path)])
+
+    assert exit_code == 1
+    expected = (
+        f"Checked {path} -- drawing 'dwg-002' ('Cover Plate')\n"
+        "Rules run: 20\n"
+        "\n"
+        "[ERROR] flatness-no-datum-references: Flatness cannot reference datums\n"
+        "  flatness feature control frame 'fcf-1' references datum(s) ['A'], "
+        "but flatness must not reference any datum\n"
+        "  location: feature=feat-surface-1 fcf=fcf-1\n"
+        "\n"
+        "1 finding(s): 1 error\n"
+    )
+    assert capsys.readouterr().out == expected
+
+
+def test_check_json_output_key_set_is_unchanged(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    main(["check", str(path), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == {"path", "drawing", "rules_run", "findings", "summary"}
+
+
+# --- Markdown helper units ---------------------------------------------------
+
+
+def test_escape_markdown_escapes_pipe_for_table_safety() -> None:
+    assert _escape_markdown("a|b") == "a\\|b"
+
+
+def test_escape_markdown_escapes_emphasis_and_code_markers() -> None:
+    assert _escape_markdown("*bold* _em_ `code`") == "\\*bold\\* \\_em\\_ \\`code\\`"
+
+
+def test_escape_markdown_escapes_angle_brackets_and_leading_bracket() -> None:
+    assert _escape_markdown("<script>") == "\\<script\\>"
+    assert _escape_markdown("[link](evil)") == "\\[link](evil)"
+
+
+def test_escape_markdown_escapes_backslash_first() -> None:
+    assert _escape_markdown("a\\b") == "a\\\\b"
+
+
+def test_escape_markdown_collapses_newlines_to_spaces() -> None:
+    assert _escape_markdown("line1\nline2\r\nline3") == "line1 line2 line3"
+
+
+def test_markdown_table_row_escapes_each_cell() -> None:
+    assert _markdown_table_row("a|b", "c") == "| a\\|b | c |"
+
+
+def test_finding_locator_pairs_all_present() -> None:
+    finding = _finding(feature_id="feat-1", dimension_id="dim-1", fcf_id="fcf-1", datum_label="A")
+
+    assert _finding_locator_pairs(finding) == [
+        ("feature", "feat-1"),
+        ("dimension", "dim-1"),
+        ("fcf", "fcf-1"),
+        ("datum", "A"),
+    ]
+
+
+def test_finding_locator_pairs_none_present() -> None:
+    finding = _finding()
+
+    assert _finding_locator_pairs(finding) == []
+
+
+def test_finding_locator_pairs_partial() -> None:
+    finding = _finding(feature_id="feat-1", datum_label="A")
+
+    assert _finding_locator_pairs(finding) == [("feature", "feat-1"), ("datum", "A")]
+
+
+# --- --markdown output -------------------------------------------------------
+
+
+def test_check_markdown_and_json_together_rejected_by_argparse(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["check", str(path), "--json", "--markdown"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "not allowed with argument" in captured.err
+
+
+def test_check_markdown_flag_order_also_rejected(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["check", str(path), "--markdown", "--json"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "not allowed with argument" in captured.err
+
+
+def test_check_markdown_no_findings_reports_clean_result(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--markdown"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("# GD&T Check Report\n")
+    assert f"| Source | {_escape_markdown(str(path))} |" in out
+    assert "| Drawing ID | dwg-001 |" in out
+    assert "| Title | Mounting Bracket |" in out
+    assert "| Rules run | 20 |" in out
+    assert "## Summary" in out
+    assert "| **Total** | 0 |" in out
+    assert "## Findings" in out
+    assert "No findings were found." in out
+    assert "###" not in out  # no per-finding headings when there are no findings
+
+
+def test_check_markdown_single_finding_includes_rule_and_location(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path), "--markdown"])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "### ERROR - flatness-no-datum-references" in out
+    assert "**Rule:** Flatness cannot reference datums" in out
+    assert "flatness must not reference any datum" in out
+    assert "**Location:** feature=feat-surface-1, fcf=fcf-1" in out
+    assert "| Error | 1 |" in out
+    assert "| **Total** | 1 |" in out
+
+
+def test_check_markdown_multiple_severities_and_deterministic_ordering(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A drawing that trips both an ERROR and a WARNING rule.
+
+    No single bundled example produces two different severities in one
+    run, so this assembles a small drawing (flatness-with-datum for the
+    ERROR, concentricity for the deprecated-characteristic WARNING) to
+    exercise the Summary table's multi-row case and the Findings
+    section's ordering guarantee.
+    """
+    drawing_file = tmp_path / "multi_severity.yaml"
+    drawing_file.write_text(
+        """
+id: dwg-100
+title: Multi-Severity Test
+default_unit: mm
+
+datums:
+  - label: A
+    feature_type: plane
+
+features:
+  - id: feat-surface-1
+    feature_type: surface
+    feature_control_frames:
+      - id: fcf-1
+        characteristic: flatness
+        tolerance:
+          upper_deviation: 0.05
+          lower_deviation: 0.05
+        datum_references:
+          - datum_label: A
+  - id: feat-bore-1
+    feature_type: cylinder
+    feature_of_size: true
+    feature_control_frames:
+      - id: fcf-2
+        characteristic: concentricity
+        tolerance:
+          upper_deviation: 0.05
+          lower_deviation: 0.05
+        datum_references:
+          - datum_label: A
+""",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["check", str(drawing_file), "--markdown"])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "| Error | 1 |" in out
+    assert "| Warning | 1 |" in out
+    assert "| **Total** | 2 |" in out
+    # Findings render in the same (engine registration) order the text/JSON
+    # reports already use -- the ERROR (flatness) finding first.
+    error_index = out.index("### ERROR - flatness-no-datum-references")
+    warning_index = out.index("### WARNING - concentricity-symmetry-deprecated")
+    assert error_index < warning_index
+
+
+def test_check_markdown_absent_locator_fields_omit_location_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """This example's finding sets feature/fcf but never dimension/datum."""
+    path = _EXAMPLES_DIR / "invalid_concentricity_deprecated.yaml"
+
+    exit_code = main(["check", str(path), "--markdown"])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "**Location:** feature=feat-bore-1, fcf=fcf-1" in out
+    assert "dimension=" not in out
+    assert "datum=" not in out
+
+
+def test_check_markdown_output_escapes_markdown_sensitive_message_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    main(["check", str(path), "--markdown"])
+
+    out = capsys.readouterr().out
+    # the real finding message embeds a Python list repr containing `[` and `'`;
+    # `[` must be escaped so it can't be misread as a Markdown link opener
+    assert "\\['A']" in out
+
+
+def test_check_markdown_category_filter_narrows_rules_run(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path), "--markdown", "--category", "tolerance"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "| Rules run | 2 |" in out
+    assert "No findings were found." in out
+
+
+def test_check_markdown_standard_filter_narrows_rules_run(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--markdown", "--standard", "general"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "| Rules run | 4 |" in out
+
+
+def test_check_markdown_ingest_error_stays_plain_text_on_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ingest/parse errors are always plain stderr text, even with --markdown."""
+    bad_file = tmp_path / "bad.yaml"
+    bad_file.write_text("id: [unclosed", encoding="utf-8")
+
+    exit_code = main(["check", str(bad_file), "--markdown"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "error" in captured.err.lower()
+    assert "#" not in captured.err  # no Markdown heading leaked into the error path
+
+
+def test_check_markdown_invalid_filter_stays_plain_text_exit_two(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--markdown", "--category", "bogus"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "invalid --category value" in captured.err
+
+
+def test_print_markdown_report_finding_with_no_locators_omits_location_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No rule in the current catalog produces a fully-locator-less finding,
+    so this exercises the branch directly rather than via a real drawing."""
+    drawing = Drawing(id="dwg-x", title="Unit Test Drawing")
+    finding = _finding()
+
+    _print_markdown_report("drawing.yaml", drawing, [finding], rules_run=1)
+
+    out = capsys.readouterr().out
+    assert "**Location:**" not in out
+    assert "### WARNING - r1" in out
+    assert "**Rule:** Title" in out
+    assert "A message." in out
+
+
+def test_check_markdown_csv_source_end_to_end(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "invalid_datum_reference_undefined.csv"
+
+    exit_code = main(["check", str(path), "--markdown"])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "| Drawing ID | dwg-007 |" in out
+    assert "### ERROR - datum-reference-must-be-defined" in out
+    assert "**Location:** feature=feat-hole-1, fcf=fcf-1" in out

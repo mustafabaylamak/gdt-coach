@@ -117,9 +117,17 @@ the old hand-maintained table, and documented per-rule limitations.
 - `--category` (repeatable) / `--standard` filters, delegating directly
   to `RuleEngine.run(categories=, standard=)`
 - `--json` output mode alongside the default plain-text report
+- `--markdown` output mode (Sprint 15): a GitHub-flavored Markdown
+  report (drawing summary table, per-severity summary table, one
+  heading + rule/message/location block per finding) intended for CI
+  job summaries, PR comments, and engineering review docs — reads the
+  same `Drawing`/`Finding` data the text/JSON reports already use, adds
+  no new dependency, and mutually excludes `--json` at the argparse
+  level (both together: exit code 2, plain stderr, no output produced)
 - Exit codes: `0` no findings, `1` one or more findings, `2` input
   couldn't be checked (malformed input, an unsupported file extension,
-  missing file, failed validation, or an invalid filter value)
+  missing file, failed validation, an invalid filter value, or passing
+  `--json` and `--markdown` together)
 - `gdt-coach rules list [--category]... [--standard] [--json]` and
   `gdt-coach rules show <rule_id> [--json]` (Sprint 12): a live rule
   catalog derived entirely from `ALL_RULE_CLASSES`, sorted by id for
@@ -130,7 +138,7 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Testing
 
-- 414 tests, 99% line coverage, run on every push via CI
+- 438 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -208,13 +216,44 @@ the old hand-maintained table, and documented per-rule limitations.
 - See `ARCHITECTURE.md#dimension-role` for the full design and why it's
   a separate field from `dimension_type` and `is_reference`
 
+### Markdown report output (Sprint 15)
+
+- `gdt-coach check <path> --markdown`, mutually exclusive with `--json`
+  (enforced by an `argparse` mutually exclusive group — passing both
+  is a parser error: stderr, exit code 2, no output on either stream)
+- `_print_markdown_report` (`cli.py`) renders GitHub-flavored Markdown
+  from the same `Drawing`/`list[Finding]`/`rules_run` values the text
+  and JSON reports already compute — no change to `Finding`,
+  `RuleEngine`, or any domain model, no new dependency, no HTML
+  emitted
+- Structure: `# GD&T Check Report`, a `## Drawing` table (source path,
+  drawing id, title, rules run), a `## Summary` table (per-severity
+  counts in a fixed severity order, not insertion order, plus a
+  `**Total**` row), and a `## Findings` section — one heading + rule +
+  message + location block per finding, in the same order the
+  text/JSON reports already use; a clean run states "No findings were
+  found." rather than an empty section
+- Every drawing/finding-derived value (ids, titles, messages, the
+  source path) is escaped before being embedded — backslash, `` ` * _
+  | < > [ ``, and collapsed newlines — so values can't break a table
+  row, be read as a link, or be misread as inline HTML
+- Presentation-only: exit codes (`0`/`1`/`2`) and which findings fire
+  are completely unchanged by `--markdown`; ingest/parse/filter errors
+  are still always plain stderr text, exactly as `--json` already
+  behaved
+- See `ARCHITECTURE.md#markdown-report-sprint-15` for the full design,
+  including a real Windows console-encoding bug (a non-ASCII em dash
+  in the finding heading was writing invalid UTF-8 bytes to stdout on
+  a non-UTF-8 codepage) found and fixed during implementation
+
 ## Planned
 
 - More GD&T rules: additional orientation/form checks, profile,
   tolerance-value sanity checks
 - A composite/multi-segment `FeatureControlFrame` representation
   (larger model change) to unlock composite-tolerancing rules
-- Markdown/HTML report output for `gdt-coach check` (JSON is done)
+- HTML report output for `gdt-coach check` (text, JSON, and Markdown
+  are done)
 - A documented target standard edition on `Drawing`, to make the
   concentricity/symmetry deprecation check a hard error instead of a
   warning where appropriate
