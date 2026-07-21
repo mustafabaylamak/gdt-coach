@@ -85,13 +85,44 @@ gdt-coach check examples/valid_position.yaml --category tolerance
 gdt-coach check examples/invalid_projected_zone.yaml --json
 ```
 
-See [examples/README.md](examples/README.md) for all six bundled
-example drawings, what each one demonstrates, and their exact output
-(generated from the real CLI, not hand-written).
+See [examples/README.md](examples/README.md) for all seven bundled
+examples (six YAML, one CSV), what each one demonstrates, and their
+exact output (generated from the real CLI, not hand-written).
 
 Exit codes: `0` no findings, `1` one or more findings, `2` the input
-couldn't be checked (malformed YAML, missing file, failed domain-model
-validation, or an invalid `--category`/`--standard` value).
+couldn't be checked (malformed input, an unsupported file extension,
+missing file, failed domain-model validation, or an invalid
+`--category`/`--standard` value).
+
+## CSV input: a second, narrow format
+
+`gdt-coach check drawing.csv` works the same as YAML — same rule
+engine, same CLI, same exit codes — but CSV is **intentionally
+limited**, not a second way to author anything YAML can:
+
+- **YAML remains the expressive, native format.** It mirrors the
+  domain model directly and supports everything `Drawing` can express.
+- **CSV is not equivalent to a technical drawing**, and supporting it
+  does not imply readiness for PDF, DXF, or any other unstructured
+  format — it's a flat, already-structured text format, the easiest
+  possible second input to support, not evidence the hard cases are
+  solved.
+- One CSV file is one `Drawing`; one row is one `Feature` with at most
+  one `Dimension` and at most one `FeatureControlFrame`. Datum
+  references are a semicolon-delimited field (`"A;B;C"`).
+- **CSV cannot declare `Datum` objects** — a CSV-sourced `Drawing`
+  always has `datums == []`. Referencing a datum label via
+  `fcf_datum_refs` will correctly trigger the existing
+  `datum-reference-must-be-defined` rule, exactly as it would for any
+  other undefined datum reference — see
+  [examples/invalid_datum_reference_undefined.csv](examples/invalid_datum_reference_undefined.csv).
+- Unsupported structures (multiple dimensions/FCFs per feature,
+  `related_dimension_ids`, composite tolerances, geometry) are
+  **rejected with a clear error, never silently approximated or
+  guessed at**.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#csv-ingest-contract-sprint-14)
+for the full column-by-column contract and every documented limitation.
 
 ## Rule catalog
 
@@ -127,11 +158,15 @@ for finding in findings:
 
 `load_drawing_from_yaml_file`/`load_drawing_from_yaml_string` are
 unchanged and remain the simplest way to load a `Drawing` from YAML.
+`load_drawing_from_csv_file`/`load_drawing_from_csv_string` (Sprint 14)
+are the CSV equivalents — same `gdt_coach.ingest` import, same
+`Drawing`/`DrawingValidationError` return/raise shape, but see "CSV
+input: a second, narrow format" above for what CSV can't express.
 Internally, `gdt-coach check` resolves its loader through
 `gdt_coach.ingest.AdapterRegistry` + `ALL_INPUT_ADAPTERS` instead of
-calling the YAML loader directly — dispatch infrastructure for future
-input formats (YAML is still the only one implemented), not something
-you need to use directly just to load YAML. See
+calling a specific loader directly — dispatch infrastructure for
+future input formats, not something you need to use directly just to
+load YAML or CSV. See
 [ARCHITECTURE.md](ARCHITECTURE.md#input-adapters).
 
 Or build a `Drawing` directly, without YAML:
@@ -234,7 +269,7 @@ gdt-coach/
 │   ├── models/        # Pydantic domain model (Drawing, Feature, Datum, ...)
 │   ├── rules/          # rule engine (Rule, Finding, RuleRegistry, RuleEngine)
 │   │   └── checks/     # 20 concrete GD&T rules, one module per rule
-│   ├── ingest/         # YAML loader (YAML -> Drawing)
+│   ├── ingest/         # YAML/CSV loaders + InputAdapter/AdapterRegistry dispatch
 │   └── cli.py          # `gdt-coach` command
 ├── tests/              # pytest suite, mirrors src/gdt_coach/ layout
 ├── examples/           # runnable example drawings (see examples/README.md)
@@ -250,8 +285,10 @@ gdt-coach/
   aren't covered yet. See [ROADMAP.md](ROADMAP.md) for what's planned.
 - **Not a CAD system.** There is no geometry engine and no 3D model —
   only the symbolic GD&T data a drawing's YAML declares.
-- **YAML input only.** No PDF, DXF, image, or native CAD file
-  ingestion.
+- **YAML and CSV input only.** No PDF, DXF, image, or native CAD file
+  ingestion. CSV (Sprint 14) is intentionally narrow — see "CSV input:
+  a second, narrow format" above — and its existence does not imply
+  the harder formats are close.
 - **Some rules depend on data the source YAML must supply correctly.**
   For example, Feature-of-Size rules trust an explicit
   `feature_of_size: true/false` flag — it is never inferred from

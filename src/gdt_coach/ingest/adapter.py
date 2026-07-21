@@ -7,17 +7,19 @@ lets a future input format be added without changing CLI dispatch,
 ``RuleEngine``, ``RuleRegistry``, or any domain model -- the same way
 adding a new ``Rule`` never touches the rule engine.
 
-YAML (``YamlInputAdapter``) is the only implemented adapter today. It
-is a thin wrapper around the existing, unchanged
-:func:`gdt_coach.ingest.yaml_loader.load_drawing_from_yaml_file` --
-no YAML parsing or validation logic is duplicated here.
+YAML (``YamlInputAdapter``) and CSV (``CsvInputAdapter``, Sprint 14)
+are the two implemented adapters. Each is a thin wrapper around its
+own existing, unchanged loader module (`yaml_loader.py`/`csv_loader.py`)
+-- no parsing or validation logic is duplicated here; ``adapter.py``
+only adds the ``format_id``/``file_extensions`` metadata and delegates
+``load()``.
 
 Deliberately not done here: a formal intermediate representation
-between raw input and ``Drawing``. ``load()`` returns a ``Drawing``
-directly; that's sufficient with one adapter and would be premature to
-generalize before a second real importer (CSV, PDF, DXF, ...) exists
-to prove out what a shared intermediate shape would actually need to
-carry.
+between raw input and ``Drawing``. Both adapters' ``load()`` return a
+``Drawing`` directly. Sprint 14 built the second real adapter
+specifically to test whether that's still sufficient -- see
+ARCHITECTURE.md's "Ingest layer" section for the evidence-based
+conclusion (still no, as of Sprint 14).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import ClassVar
 
+from gdt_coach.ingest.csv_loader import load_drawing_from_csv_file
 from gdt_coach.ingest.exceptions import (
     DuplicateFileExtensionError,
     DuplicateFormatIdError,
@@ -61,6 +64,20 @@ class YamlInputAdapter(InputAdapter):
 
     def load(self, path: Path) -> Drawing:
         return load_drawing_from_yaml_file(path)
+
+
+class CsvInputAdapter(InputAdapter):
+    """Adapts the narrow CSV ingest contract to the InputAdapter interface.
+
+    See ``csv_loader.py`` for the full contract and its explicit,
+    intentional limitations relative to YAML.
+    """
+
+    format_id = "csv"
+    file_extensions = (".csv",)
+
+    def load(self, path: Path) -> Drawing:
+        return load_drawing_from_csv_file(path)
 
 
 def _normalize_extension(extension: str) -> str:
@@ -139,7 +156,7 @@ class AdapterRegistry:
         return len(self.all())
 
 
-ALL_INPUT_ADAPTERS: tuple[type[InputAdapter], ...] = (YamlInputAdapter,)
+ALL_INPUT_ADAPTERS: tuple[type[InputAdapter], ...] = (YamlInputAdapter, CsvInputAdapter)
 """The single source of truth for "every input adapter that exists" -- mirrors
 :data:`gdt_coach.rules.checks.ALL_RULE_CLASSES`. Adding a new adapter means:
 write its module (or add it here directly, at this scale), add it to this

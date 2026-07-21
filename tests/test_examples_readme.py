@@ -104,6 +104,21 @@ def test_discover_example_keys_matches_real_examples_dir() -> None:
     assert all(not key.endswith(".yaml") for key in keys)
 
 
+def test_discover_example_keys_includes_csv_examples() -> None:
+    keys = gen.discover_example_keys(_EXAMPLES_DIR)
+
+    assert "invalid_datum_reference_undefined" in keys
+    assert all(not key.endswith(".csv") for key in keys)
+
+
+def test_relative_example_path_resolves_both_yaml_and_csv() -> None:
+    assert gen._relative_example_path("valid_position") == "examples/valid_position.yaml"
+    assert (
+        gen._relative_example_path("invalid_datum_reference_undefined")
+        == "examples/invalid_datum_reference_undefined.csv"
+    )
+
+
 # --- Detecting drift: a mangled (stale) copy must not regenerate as itself --
 
 

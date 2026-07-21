@@ -9,10 +9,13 @@ import pytest
 from gdt_coach.ingest.adapter import (
     ALL_INPUT_ADAPTERS,
     AdapterRegistry,
+    CsvInputAdapter,
     InputAdapter,
     YamlInputAdapter,
 )
+from gdt_coach.ingest.csv_loader import load_drawing_from_csv_file
 from gdt_coach.ingest.exceptions import (
+    CsvParseError,
     DuplicateFileExtensionError,
     DuplicateFormatIdError,
     UnsupportedFormatError,
@@ -85,6 +88,57 @@ def test_yaml_adapter_raises_the_same_errors_as_the_direct_loader(tmp_path: Path
         YamlInputAdapter().load(bad_file)
     with pytest.raises(YamlParseError):
         load_drawing_from_yaml_file(bad_file)
+
+
+# --- CsvInputAdapter -----------------------------------------------------------
+
+
+def test_csv_adapter_metadata() -> None:
+    adapter = CsvInputAdapter()
+
+    assert adapter.format_id == "csv"
+    assert adapter.file_extensions == (".csv",)
+
+
+def test_csv_adapter_equivalent_to_direct_loader() -> None:
+    path = _EXAMPLES_DIR / "invalid_datum_reference_undefined.csv"
+
+    via_adapter = CsvInputAdapter().load(path)
+    via_direct_call = load_drawing_from_csv_file(path)
+
+    assert via_adapter == via_direct_call
+
+
+def test_csv_adapter_raises_the_same_errors_as_the_direct_loader(tmp_path: Path) -> None:
+    bad_file = tmp_path / "bad.csv"
+    bad_file.write_text("", encoding="utf-8")
+
+    with pytest.raises(CsvParseError):
+        CsvInputAdapter().load(bad_file)
+    with pytest.raises(CsvParseError):
+        load_drawing_from_csv_file(bad_file)
+
+
+# --- YAML and CSV adapters coexisting -----------------------------------------
+
+
+def test_yaml_and_csv_adapters_coexist_in_one_registry() -> None:
+    registry = AdapterRegistry()
+    registry.register(YamlInputAdapter)
+    registry.register(CsvInputAdapter)
+
+    assert registry.resolve(Path("drawing.yaml")).format_id == "yaml"
+    assert registry.resolve(Path("drawing.yml")).format_id == "yaml"
+    assert registry.resolve(Path("drawing.csv")).format_id == "csv"
+    assert len(registry) == 2
+
+
+def test_csv_resolve_is_case_insensitive() -> None:
+    registry = AdapterRegistry()
+    registry.register(CsvInputAdapter)
+
+    assert registry.resolve(Path("DRAWING.CSV")).format_id == "csv"
+    assert registry.resolve(Path("drawing.Csv")).format_id == "csv"
 
 
 # --- AdapterRegistry: registration and resolution ----------------------------
@@ -203,6 +257,10 @@ def test_registration_order_does_not_affect_resolution() -> None:
 
 def test_all_input_adapters_contains_yaml_adapter() -> None:
     assert YamlInputAdapter in ALL_INPUT_ADAPTERS
+
+
+def test_all_input_adapters_contains_csv_adapter() -> None:
+    assert CsvInputAdapter in ALL_INPUT_ADAPTERS
 
 
 def test_all_input_adapters_register_without_conflict() -> None:

@@ -1,0 +1,2 @@
+drawing_id,drawing_title,feature_id,feature_type,feature_of_size,fcf_id,fcf_characteristic,fcf_tolerance_upper,fcf_tolerance_lower,fcf_datum_refs
+dwg-007,CSV Bracket,feat-hole-1,hole,true,fcf-1,position,0.25,0.25,A

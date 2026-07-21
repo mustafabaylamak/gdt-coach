@@ -104,6 +104,79 @@ def test_check_unsupported_extension_exits_two_with_stderr_message(
     assert "no input adapter registered for file extension '.pdf'" in captured.err
 
 
+# --- CSV end-to-end ---------------------------------------------------------
+
+
+def test_check_csv_example_exits_one_with_expected_finding(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_datum_reference_undefined.csv"
+
+    exit_code = main(["check", str(path)])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "Rules run: 20" in out
+    assert "datum-reference-must-be-defined" in out
+    assert "feature=feat-hole-1" in out
+    assert "fcf=fcf-1" in out
+    assert "1 finding(s): 1 error" in out
+
+
+def test_check_csv_json_output_is_valid_json(capsys: pytest.CaptureFixture[str]) -> None:
+    path = _EXAMPLES_DIR / "invalid_datum_reference_undefined.csv"
+
+    exit_code = main(["check", str(path), "--json"])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["path"] == str(path)
+    assert payload["drawing"] == {"id": "dwg-007", "title": "CSV Bracket"}
+    assert payload["rules_run"] == 20
+    assert len(payload["findings"]) == 1
+    finding = payload["findings"][0]
+    assert finding["rule_id"] == "datum-reference-must-be-defined"
+    assert finding["severity"] == "error"
+    assert finding["feature_id"] == "feat-hole-1"
+    assert finding["fcf_id"] == "fcf-1"
+
+
+def test_check_csv_malformed_content_exits_two(tmp_path: Path) -> None:
+    bad_file = tmp_path / "bad.csv"
+    bad_file.write_text("", encoding="utf-8")
+
+    exit_code = main(["check", str(bad_file)])
+
+    assert exit_code == 2
+
+
+def test_check_csv_malformed_content_writes_error_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad_file = tmp_path / "bad.csv"
+    bad_file.write_text("", encoding="utf-8")
+
+    main(["check", str(bad_file)])
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error" in captured.err.lower()
+
+
+def test_check_csv_uppercase_extension_resolves(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = _EXAMPLES_DIR / "invalid_datum_reference_undefined.csv"
+    upper_path = tmp_path / "drawing.CSV"
+    upper_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    exit_code = main(["check", str(upper_path)])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "datum-reference-must-be-defined" in out
+
+
 def test_check_nonexistent_file_exits_two(tmp_path: Path) -> None:
     missing = tmp_path / "does-not-exist.yaml"
 

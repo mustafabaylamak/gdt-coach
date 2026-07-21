@@ -3,12 +3,14 @@
 
 Each example's command, real stdout, and exit code lives between a pair
 of ``<!-- gdt-coach:example KEY -->`` / ``<!-- /gdt-coach:example -->``
-markers in ``examples/README.md``, where KEY is a YAML file's stem
+markers in ``examples/README.md``, where KEY is an example file's stem
 under ``examples/`` (e.g. ``valid_position`` for
-``examples/valid_position.yaml``). This script is the only place that
-produces that text: it runs the real CLI (``gdt_coach.cli.main``, the
-same function the installed ``gdt-coach`` console script calls)
-against every YAML file in ``examples/`` and replaces each marked
+``examples/valid_position.yaml``, or ``invalid_datum_reference_undefined``
+for ``examples/invalid_datum_reference_undefined.csv``). This script is
+the only place that produces that text: it runs the real CLI
+(``gdt_coach.cli.main``, the same function the installed ``gdt-coach``
+console script calls) against every example file in ``examples/``
+(YAML or CSV -- see ``_EXAMPLE_EXTENSIONS``) and replaces each marked
 region with a fresh capture, so the documentation can never silently
 drift from real behavior.
 
@@ -42,14 +44,26 @@ _MARKER_PATTERN = re.compile(
     re.DOTALL,
 )
 
+_EXAMPLE_EXTENSIONS = (".yaml", ".csv")
+"""Every extension an example file under examples/ may use. Add a new one
+here (and nowhere else) when a new example input format is bundled."""
+
 
 class ExamplesReadmeError(ValueError):
-    """Raised when examples/README.md and examples/*.yaml are out of sync."""
+    """Raised when examples/README.md and examples/*.{yaml,csv} are out of sync."""
 
 
 def discover_example_keys(examples_dir: Path) -> set[str]:
-    """The stem of every YAML file under `examples_dir` (e.g. {"valid_position", ...})."""
-    return {path.stem for path in examples_dir.glob("*.yaml")}
+    """The stem of every example file under `examples_dir` (e.g. {"valid_position", ...}).
+
+    Looks at every extension in `_EXAMPLE_EXTENSIONS` (currently YAML and
+    CSV), so this stays generic as more example input formats are added.
+    """
+    return {
+        path.stem
+        for extension in _EXAMPLE_EXTENSIONS
+        for path in examples_dir.glob(f"*{extension}")
+    }
 
 
 def documented_example_keys(readme_text: str) -> set[str]:
@@ -73,8 +87,27 @@ def _run_cli(args: list[str]) -> tuple[str, int]:
     return buffer.getvalue().rstrip("\n"), exit_code
 
 
+def _relative_example_path(key: str) -> str:
+    """The `examples/<key><ext>` path for `key`, resolving its real extension.
+
+    Generic over `_EXAMPLE_EXTENSIONS` so this doesn't need to change
+    when a new example input format (beyond YAML/CSV) is added.
+    """
+    matches = [
+        path
+        for extension in _EXAMPLE_EXTENSIONS
+        for path in _EXAMPLES_DIR.glob(f"{key}{extension}")
+    ]
+    if len(matches) != 1:
+        raise ExamplesReadmeError(
+            f"expected exactly one example file for key {key!r} under {_EXAMPLES_DIR}, "
+            f"found {[str(match) for match in matches]}"
+        )
+    return f"examples/{matches[0].name}"
+
+
 def _generated_block(key: str) -> str:
-    relative_path = f"examples/{key}.yaml"
+    relative_path = _relative_example_path(key)
     with contextlib.chdir(_REPO_ROOT):
         stdout, exit_code = _run_cli(["check", relative_path])
     return f"```\n$ gdt-coach check {relative_path}\n{stdout}\n```\n\nExit code: `{exit_code}`"
@@ -83,7 +116,7 @@ def _generated_block(key: str) -> str:
 def regenerate(readme_text: str, examples_dir: Path = _EXAMPLES_DIR) -> str:
     """Return `readme_text` with every marked example block replaced by a fresh capture.
 
-    Raises ExamplesReadmeError if examples/*.yaml and the documented
+    Raises ExamplesReadmeError if examples/*.{yaml,csv} and the documented
     <!-- gdt-coach:example --> blocks are out of sync: a new example
     added without a doc block, or a doc block left behind for a
     deleted example.
@@ -93,7 +126,7 @@ def regenerate(readme_text: str, examples_dir: Path = _EXAMPLES_DIR) -> str:
     missing, orphaned = diff_example_keys(documented, discovered)
     if missing or orphaned:
         raise ExamplesReadmeError(
-            "examples/README.md is out of sync with examples/*.yaml -- "
+            "examples/README.md is out of sync with examples/*.{yaml,csv} -- "
             f"missing doc block(s) for {sorted(missing)}, "
             f"orphaned doc block(s) for {sorted(orphaned)}"
         )

@@ -6,7 +6,7 @@
 above it:
 
 ```
-YAML file
+YAML/CSV file
    │  gdt_coach.ingest
    ▼
 Drawing (Pydantic domain model)      gdt_coach.models
@@ -25,13 +25,15 @@ list[Finding]  ──────────────────►   gdt_c
   rule.
 - **Concrete rules** (`gdt_coach.rules.checks`) — 20 deterministic ASME
   Y14.5 rules, each a small, independent module.
-- **Ingest** (`gdt_coach.ingest`) — loads a `Drawing` from YAML. No other
-  input format is supported yet.
+- **Ingest** (`gdt_coach.ingest`) — loads a `Drawing` from YAML (the
+  expressive, native format) or CSV (a second, intentionally narrow
+  format, Sprint 14). No other input format is supported yet.
 - **CLI** (`gdt_coach.cli`) — the only place that wires ingest to the
   rule engine and prints a report.
 
 No PDF/DXF/CAD/image input is supported, and there is no Markdown/HTML
-report output — only plain text and JSON.
+report output — only plain text and JSON. CSV support does not imply
+readiness for these — see "CSV ingest contract" below.
 
 ## Layout
 
@@ -47,9 +49,9 @@ report output — only plain text and JSON.
     - `checks/` — concrete `Rule` subclasses, one module per rule. See
       "Concrete rules" below.
   - `ingest/` — loads a source document into a validated `Drawing`;
-    YAML is the only implemented format, dispatched through an
-    `InputAdapter`/`AdapterRegistry` boundary. See "Ingest layer"
-    below.
+    YAML and CSV (Sprint 14) are the two implemented formats,
+    dispatched through an `InputAdapter`/`AdapterRegistry` boundary.
+    See "Ingest layer" below.
 - `tests/` — pytest suite, mirrors the package layout (`tests/models/`
   mirrors `src/gdt_coach/models/`, `tests/rules/` mirrors
   `src/gdt_coach/rules/`, `tests/rules/checks/` mirrors
@@ -393,15 +395,20 @@ wiring lives in the CLI (see "Entry points" below).
   text into a plain dict (via `yaml.safe_load`) and hands that straight
   to `Drawing.model_validate()`. Both return a `Drawing` or raise.
   Unchanged by the adapter work below — nothing in this module or its
-  public functions was touched.
-- `exceptions.py` — `YamlParseError` (not valid YAML, or not a mapping,
-  or an empty document) and `DrawingValidationError` (parses fine but
-  fails `Drawing`'s validation — wraps the underlying Pydantic
-  `ValidationError`), plus (Sprint 13) `UnsupportedFormatError`,
-  `DuplicateFormatIdError`, `DuplicateFileExtensionError`. All subclass
-  `IngestError`.
-- `adapter.py` (Sprint 13) — the format-dispatch boundary described
+  public functions was touched, in Sprint 13 or Sprint 14.
+- `csv_loader.py` (Sprint 14) — `load_drawing_from_csv_string`/
+  `load_drawing_from_csv_file`, the CSV ingest contract described
   below.
+- `exceptions.py` — `YamlParseError` (not valid YAML, or not a mapping,
+  or an empty document), `CsvParseError` (Sprint 14 — a CSV-contract
+  violation `Drawing` has no way to know about), and
+  `DrawingValidationError` (parses fine but fails `Drawing`'s
+  validation — wraps the underlying Pydantic `ValidationError`; both
+  loaders raise this for the same class of problem: a bad enum value,
+  a duplicate feature id, a malformed datum label), plus (Sprint 13)
+  `UnsupportedFormatError`, `DuplicateFormatIdError`,
+  `DuplicateFileExtensionError`. All subclass `IngestError`.
+- `adapter.py` — the format-dispatch boundary described below.
 
 **YAML schema**: the YAML mirrors `gdt_coach.models` field names and
 nesting directly (`Drawing` -> `features`/`datums` ->
@@ -413,7 +420,55 @@ the same lowercase string values as each enum's `.value` (e.g.
 `characteristic: position`, `unit: mm`). Because `GDTBaseModel` sets
 `extra="forbid"`, an unrecognized YAML key is a validation error rather
 than being silently ignored. See `examples/` for complete drawings and
-the README for a field-by-field walkthrough.
+the README for a field-by-field walkthrough. **YAML is the expressive,
+native format** — it supports everything `Drawing` can express.
+
+### CSV ingest contract (Sprint 14)
+
+CSV is a second, **intentionally narrow** input format — not a
+technical-drawing replacement, and its existence does not imply
+readiness for PDF, DXF, or any other unstructured format. The contract:
+
+- One CSV file represents exactly one `Drawing`. Every row repeats the
+  same drawing-level columns (`drawing_id`, `drawing_title`, and the
+  optional `drawing_number`/`drawing_revision`/`drawing_default_unit`/
+  `drawing_scale`); a mismatch across rows is a hard `CsvParseError`,
+  not a "last one wins" merge — CSV has no separate place to state
+  drawing-level metadata once, the way a YAML top-level key does.
+- One row represents exactly one `Feature`.
+- Each row may specify **zero or one** `Dimension` (`dimension_*`
+  columns) and **zero or one** `FeatureControlFrame` (`fcf_*` columns).
+  A blank `dimension_id`/`fcf_id` means that nested object is absent;
+  any other `dimension_*`/`fcf_*` column set while its id is blank is
+  rejected as ambiguous, not silently dropped.
+- Datum references are one semicolon-delimited field
+  (`fcf_datum_refs`, e.g. `"A;B;C"`); every reference gets
+  `material_condition: rfs` — CSV cannot express a per-datum modifier.
+- CSV cells are always strings, so numeric and boolean fields
+  (`dimension_nominal_value`, `feature_of_size`, ...) are parsed
+  explicitly by `csv_loader.py` — the one piece of real, CSV-specific
+  work YAML gets for free from `yaml.safe_load`'s own typing.
+
+**Explicitly unsupported** (rejected via `CsvParseError` or an unknown
+header, never approximated): more than one Dimension or FCF per
+feature, `related_dimension_ids`, composite/multi-segment FCFs, `Datum`
+declarations (a CSV-sourced `Drawing` always has `datums == []`; a
+datum label referenced via `fcf_datum_refs` will correctly be flagged
+as undefined by the existing `datum-reference-must-be-defined` rule —
+see `examples/invalid_datum_reference_undefined.csv`), the FCF boolean
+modifiers (`all_around`/`all_over`/`free_state`/`statistical_tolerance`,
+always `False`), any geometry, and any relationship not stated
+explicitly in a column. See `csv_loader.py`'s module docstring for the
+authoritative, exhaustive list.
+
+Malformed/ambiguous CSV-contract input (missing/unknown headers, an
+empty file, inconsistent drawing metadata, malformed numeric/boolean
+values, a partially specified Dimension/FCF, an invalid delimited
+datum-reference list) raises `CsvParseError`. Domain-shape problems (a
+bad enum value, a duplicate feature id, a malformed datum label) are
+deliberately left to `Drawing`'s own validators and surface as
+`DrawingValidationError` instead — not re-implemented in the CSV
+loader, exactly as YAML already relies on those same validators.
 
 ### Input adapters
 
@@ -429,32 +484,64 @@ time, before any lookup can be ambiguous). `ALL_INPUT_ADAPTERS` is the
 single source of truth for "every adapter that exists", mirroring
 `ALL_RULE_CLASSES`.
 
-`YamlInputAdapter` (`format_id="yaml"`, extensions `.yaml`/`.yml`) is
-the only concrete adapter today. It is a pure delegation wrapper around
-`load_drawing_from_yaml_file` — no YAML parsing or validation logic is
-duplicated in `adapter.py`.
+Two concrete adapters exist: `YamlInputAdapter` (`format_id="yaml"`,
+extensions `.yaml`/`.yml`) and `CsvInputAdapter` (Sprint 14,
+`format_id="csv"`, extension `.csv`). Each is a pure delegation wrapper
+around its own loader module — no parsing or validation logic is
+duplicated in `adapter.py`. `adapter.py` deliberately **stayed flat**
+for this second adapter rather than being split into a `rules/checks/`-
+style subpackage: two ~10-line adapter classes plus the registry is not
+a maintainability problem, and splitting now would be refactoring for
+symmetry, not because the file is hard to navigate. Revisit this if a
+third adapter makes the file genuinely unwieldy.
 
 `cli.py`'s `check` command resolves an adapter from `ALL_INPUT_ADAPTERS`
 via `AdapterRegistry.resolve(path)` and calls `adapter.load(path)`,
-rather than calling `load_drawing_from_yaml_file` directly. An
-unresolvable extension raises `UnsupportedFormatError` (an
-`IngestError` subclass), which flows through the CLI's existing
-`except (IngestError, OSError)` handling unchanged — no new error path
-was added to the CLI, only a new thing that can raise into the
-existing one. This means a future adapter can be added by writing one
-module and adding it to `ALL_INPUT_ADAPTERS`, without touching
-`cli.py`, `RuleEngine`, `RuleRegistry`, or any domain model — the same
-ergonomics `ALL_RULE_CLASSES` already gives new rules.
+rather than calling a specific loader directly. An unresolvable
+extension raises `UnsupportedFormatError` (an `IngestError` subclass),
+which flows through the CLI's existing `except (IngestError, OSError)`
+handling unchanged — no new error path was added to the CLI, only a
+new thing that can raise into the existing one. This means a future
+adapter can be added by writing one module and adding it to
+`ALL_INPUT_ADAPTERS`, without touching `cli.py`, `RuleEngine`,
+`RuleRegistry`, or any domain model — the same ergonomics
+`ALL_RULE_CLASSES` already gives new rules.
 
-**What this is not**: this is dispatch infrastructure, not PDF/DXF/CAD
-support. `YamlInputAdapter.load()` returns a `Drawing` directly —
-there is no intermediate representation between raw input and the
-domain model. Introducing one is deliberately deferred until a second
-real importer (CSV, PDF, DXF, STEP AP242, ...) exists to provide actual
-evidence for what a shared intermediate shape would need to carry;
-designing it now, against a single format, would mean guessing.
-CSV/PDF/DXF/STEP/OCR ingestion and format auto-sniffing remain
-explicitly out of scope (see "Decisions to be made" below).
+### Intermediate representation: evidence-based conclusion (Sprint 14)
+
+Sprint 13 deliberately deferred a formal intermediate representation
+(IR) between raw input and `Drawing` "until a second real importer
+exists to provide evidence." Sprint 14 built that second importer.
+**Conclusion: no formal IR is needed yet.** Concrete reasons, from
+actually inspecting both construction paths:
+
+1. Both loaders already converge on the same target shape — a plain
+   dict matching `Drawing`'s field names and nesting — and both hand
+   that dict to `Drawing.model_validate()` identically. That
+   convergence is itself the evidence an IR would exist to enforce,
+   and it already holds without a named type for it.
+2. The only code duplicated between `yaml_loader.py` and
+   `csv_loader.py` is the `try: Drawing.model_validate(data) except
+   ValidationError: raise DrawingValidationError(...)` wrapper — three
+   lines. That is not enough duplication to justify a new abstraction
+   layer; a formal IR would not remove it, only relocate it.
+3. Each loader's substantial logic is inherently format-specific and
+   would not transfer to a third format. YAML's real work is parsing
+   YAML syntax (largely `yaml.safe_load`'s job). CSV's real work —
+   row-to-nested-object grouping, explicit numeric/boolean coercion,
+   cross-row drawing-metadata consistency checking — exists *because*
+   CSV is flat and untyped, a problem specific to tabular formats. An
+   IR would not eliminate this work, since something still has to do
+   exactly this grouping/coercion before an IR could be populated.
+4. Introducing an IR now would add real cost for no measured benefit:
+   a new type both loaders must learn to populate, and a new layer of
+   indirection between "what a format produced" and "what `Drawing`
+   needs" — while the evidence available is still only two formats
+   that are both already-structured, delimited text. Neither has
+   tested the harder case an IR would actually need to justify itself
+   against: a format like PDF or DXF whose source data has no natural
+   row/key structure to group into a dict at all. Revisit this decision
+   if and when that harder case is attempted — not before.
 
 ## Tooling
 
@@ -619,14 +706,15 @@ prefer deleting the restatement over automating its regeneration.
 - A documented policy on paraphrasing vs. quoting ASME Y14.5/ISO 1101
   in rule `explanation` text — no verbatim standard text exists today,
   but nothing currently stops a future rule from copying it in.
-- Other input formats (CSV/PDF/DXF/CAD/STEP AP242/image) — explicitly
-  out of scope for now. Sprint 13 built the `InputAdapter`/
-  `AdapterRegistry` dispatch boundary a second format would plug into,
-  but implemented none — see "Ingest layer" above.
-- Whether a formal intermediate representation belongs between raw
-  input and `Drawing`, once a second real adapter exists to show what
-  it would need to carry (deliberately not designed against YAML
-  alone).
+- Other input formats (PDF/DXF/CAD/STEP AP242/image) — explicitly out
+  of scope for now. CSV (Sprint 14) is implemented but intentionally
+  narrow (see "CSV ingest contract" above); the harder, unstructured
+  formats remain unattempted.
+- ~~Whether a formal intermediate representation belongs between raw
+  input and `Drawing`~~ — evaluated in Sprint 14 with a real second
+  adapter: not yet needed, see "Intermediate representation:
+  evidence-based conclusion" above. Revisit once a format with no
+  natural row/key structure (PDF, DXF) is actually attempted.
 - Data storage / persistence approach, if any.
 
 Update this document as real architecture decisions are made.

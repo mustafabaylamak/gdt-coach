@@ -61,8 +61,31 @@ the old hand-maintained table, and documented per-rule limitations.
   added GD&T semantics
 - `YamlParseError` / `DrawingValidationError` (`IngestError` base) for
   malformed YAML vs. domain-model validation failures
+- The expressive, native format — supports everything `Drawing` can
+  express
 
-### Input adapter dispatch (Sprint 13)
+### CSV ingest (Sprint 14)
+
+- `load_drawing_from_csv_string` / `load_drawing_from_csv_file`
+  (stdlib `csv` module only, no new dependency), following the narrow
+  contract: one file = one `Drawing`, one row = one `Feature` with at
+  most one `Dimension` and one `FeatureControlFrame`
+- `CsvParseError` (`IngestError` base) for CSV-contract violations
+  (missing/unknown headers, empty file, inconsistent drawing metadata,
+  malformed numeric/boolean values, partial Dimension/FCF fields,
+  invalid delimited datum references); domain-shape problems (bad enum
+  values, duplicate feature ids, malformed datum labels) reuse
+  `Drawing`'s own existing validators and surface as
+  `DrawingValidationError`, same as YAML
+- Intentionally narrow, not YAML parity: no multi-dimension/multi-FCF
+  features, no `related_dimension_ids`, no `Datum` declarations (a
+  CSV-sourced `Drawing` always has `datums == []`), no composite
+  tolerances, no geometry — see `ARCHITECTURE.md#csv-ingest-contract-sprint-14`
+  for the full contract and every documented limitation
+- Existence does not imply PDF/DXF readiness — CSV is already a
+  structured, delimited text format, the easiest possible second input
+
+### Input adapter dispatch (Sprint 13; second adapter in Sprint 14)
 
 - `InputAdapter` (`format_id`, `file_extensions`, `load(path) -> Drawing`)
   and `AdapterRegistry` (resolves by normalized, case-insensitive file
@@ -70,28 +93,33 @@ the old hand-maintained table, and documented per-rule limitations.
   time), mirroring `Rule`/`RuleRegistry`
 - `ALL_INPUT_ADAPTERS` as the single source of truth for which
   adapters exist, used by the CLI exactly like `ALL_RULE_CLASSES`
-- `YamlInputAdapter` is the only concrete adapter — a pure delegation
-  wrapper around `load_drawing_from_yaml_file`, no parsing logic
-  duplicated
+- `YamlInputAdapter` and `CsvInputAdapter` (Sprint 14) are both pure
+  delegation wrappers around their own loader module — no parsing
+  logic duplicated in `adapter.py`, which deliberately stayed one flat
+  file for two adapters (not split into a subpackage) since two
+  ~10-line classes plus the registry isn't a maintainability problem
 - `gdt-coach check` resolves its adapter through the registry instead
-  of calling the YAML loader directly; an unresolvable extension
+  of calling a specific loader directly; an unresolvable extension
   raises `UnsupportedFormatError` (an `IngestError` subclass), so it
   flows through the CLI's existing error handling unchanged
-- Dispatch infrastructure only — no second format is implemented, no
-  intermediate representation was added, no new runtime dependency.
-  See `ARCHITECTURE.md#input-adapters` for the full design and what's
-  deliberately deferred
+- **Evidence-based conclusion (Sprint 14): no formal intermediate
+  representation is needed yet.** The only logic duplicated between
+  the two loaders is a 3-line `Drawing.model_validate()`/
+  `DrawingValidationError` wrapper; each loader's real complexity is
+  inherently format-specific (YAML syntax vs. CSV row-grouping/type
+  coercion) and wouldn't be reduced by an IR. See
+  `ARCHITECTURE.md#intermediate-representation-evidence-based-conclusion-sprint-14`
 
 ### CLI
 
-- `gdt-coach check <path>`: loads a YAML drawing, runs the rule engine,
-  and prints a report
+- `gdt-coach check <path>`: loads a YAML or CSV drawing (dispatched via
+  `AdapterRegistry`), runs the rule engine, and prints a report
 - `--category` (repeatable) / `--standard` filters, delegating directly
   to `RuleEngine.run(categories=, standard=)`
 - `--json` output mode alongside the default plain-text report
 - Exit codes: `0` no findings, `1` one or more findings, `2` input
-  couldn't be checked (malformed YAML, missing file, failed validation,
-  or an invalid filter value)
+  couldn't be checked (malformed input, an unsupported file extension,
+  missing file, failed validation, or an invalid filter value)
 - `gdt-coach rules list [--category]... [--standard] [--json]` and
   `gdt-coach rules show <rule_id> [--json]` (Sprint 12): a live rule
   catalog derived entirely from `ALL_RULE_CLASSES`, sorted by id for
@@ -102,7 +130,7 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Testing
 
-- 358 tests, 99% line coverage, run on every push via CI
+- 414 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -110,14 +138,17 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Examples & documentation drift guard
 
-- Six bundled example YAML drawings under `examples/`, one clean and
-  five each demonstrating a distinct rule (including a `WARNING`, and
-  one exercising `related_dimension_ids` + `Dimension.role`)
+- Seven bundled example drawings under `examples/`: six YAML (one
+  clean, five each demonstrating a distinct rule, including a
+  `WARNING` and one exercising `related_dimension_ids` +
+  `Dimension.role`) and one CSV (Sprint 14, demonstrating that a
+  CSV-sourced `Drawing` can't declare `Datum` objects)
 - `scripts/generate_examples_readme.py` regenerates the captured
   command/output/exit-code blocks in `examples/README.md` from the
-  real CLI; `tests/test_examples_readme.py` runs it in `--check` mode
-  as part of the normal test suite, failing the build if committed
-  documentation ever drifts from real behavior again
+  real CLI; generic over example file extension (`_EXAMPLE_EXTENSIONS`,
+  Sprint 14), not YAML-specific. `tests/test_examples_readme.py` runs
+  it in `--check` mode as part of the normal test suite, failing the
+  build if committed documentation ever drifts from real behavior again
 - Closes a real regression: the documented rule count and example
   output silently went stale for three sprints (Sprint 8–10) with
   nothing catching it — see `ARCHITECTURE.md#documentation-drift-guard`
@@ -198,13 +229,14 @@ the old hand-maintained table, and documented per-rule limitations.
 - A versioned wire schema for YAML input, if the domain model changes
   in ways that would otherwise break existing files
 - Packaging/release process (versioning, changelog, PyPI publishing)
-- Other input formats (CSV/PDF/DXF/CAD/STEP AP242/image) — a
-  substantial undertaking, not scoped yet. Sprint 13 built the
-  adapter/registry boundary a second format would plug into; it
-  implemented none of them
-- A formal intermediate representation between raw input and `Drawing`
-  — deliberately deferred until a second real adapter exists to show
-  what shape it actually needs, rather than designing it against YAML
-  alone
+- Other input formats (PDF/DXF/CAD/STEP AP242/image) — a substantial
+  undertaking, not scoped yet. CSV (Sprint 14) is implemented but
+  intentionally narrow; none of the harder, unstructured formats have
+  been attempted
+- ~~A formal intermediate representation between raw input and
+  `Drawing`~~ — evaluated in Sprint 14 with a real second adapter
+  (CSV): not needed yet. Revisit once a format with no natural
+  row/key structure (PDF, DXF) is actually attempted — see
+  `ARCHITECTURE.md#intermediate-representation-evidence-based-conclusion-sprint-14`
 
 See `PROJECT.md` for goals, non-goals, and success criteria.

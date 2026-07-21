@@ -1,8 +1,10 @@
 # Examples
 
-Six runnable YAML drawings: one clean, and five each demonstrating a
-distinct rule (including one `WARNING`-severity example and one
-demonstrating the Sprint 9/10 dimension-aware rules). Every
+Seven runnable drawings: six YAML (one clean, five each demonstrating a
+distinct rule, including one `WARNING`-severity example and one
+demonstrating the Sprint 9/10 dimension-aware rules) and one CSV
+(Sprint 14 — see "CSV example" below for what that format is and, more
+importantly, isn't). Every
 `<!-- gdt-coach:example KEY --> ... <!-- /gdt-coach:example -->` block
 below is a real, generated capture of `gdt-coach check` run against
 these exact files, never hand-written — see "Keeping this file
@@ -161,6 +163,37 @@ Rules run: 20
 Exit code: `1`
 <!-- /gdt-coach:example -->
 
+## `invalid_datum_reference_undefined.csv` — CSV example, and what CSV can't do
+
+CSV (Sprint 14) is a second, **intentionally narrow** input format —
+not a technical-drawing replacement, and its existence doesn't imply
+readiness for PDF or any other unstructured format. It cannot declare
+`Datum` objects, so a CSV-sourced `Drawing` always has `datums == []`.
+This file's position tolerance references datum `A` via
+`fcf_datum_refs` — a real, well-formed reference — but because CSV has
+no way to *define* that datum, `datum-reference-must-be-defined` (an
+existing, YAML-format-agnostic rule) correctly flags it as undefined.
+This is expected: the limitation is rejected loudly by an existing
+rule, not silently approximated. See the root
+[README.md](../README.md#csv-input-a-second-narrow-format) for the
+full CSV contract and what it deliberately does not support.
+
+<!-- gdt-coach:example invalid_datum_reference_undefined -->
+```
+$ gdt-coach check examples/invalid_datum_reference_undefined.csv
+Checked examples/invalid_datum_reference_undefined.csv -- drawing 'dwg-007' ('CSV Bracket')
+Rules run: 20
+
+[ERROR] datum-reference-must-be-defined: Referenced datums must be defined
+  feature control frame 'fcf-1' references undefined datum(s) ['A']; no datum with that label is defined on this drawing
+  location: feature=feat-hole-1 fcf=fcf-1
+
+1 finding(s): 1 error
+```
+
+Exit code: `1`
+<!-- /gdt-coach:example -->
+
 ## Try the filters and JSON output yourself
 
 ```bash
@@ -179,11 +212,11 @@ id, category, standard, and documented limitations.
 
 Every `<!-- gdt-coach:example KEY --> ... <!-- /gdt-coach:example -->`
 block above is generated, not hand-written: it's the real stdout and
-exit code of `gdt-coach check examples/KEY.yaml`, produced by running
-the actual CLI (`gdt_coach.cli.main`, the same function the installed
-console script calls). Regenerate it after any change that could
-affect a rule's output (a new rule, a changed message, a new example
-file):
+exit code of `gdt-coach check` run against the matching example file
+under `examples/` (YAML or CSV), produced by running the actual CLI
+(`gdt_coach.cli.main`, the same function the installed console script
+calls). Regenerate it after any change that could affect a rule's
+output (a new rule, a changed message, a new example file):
 
 ```bash
 python scripts/generate_examples_readme.py
