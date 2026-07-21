@@ -381,6 +381,45 @@ work if a rule ever genuinely needs it.
   for `Feature.feature_of_size`. No heuristic (e.g. treating every
   `LINEAR` dimension as `LOCATION`) is used to paper over this.
 
+### Rule audit (Sprint 17)
+
+Every rule above was reviewed against its own title/explanation/tests
+in a dedicated pass — see **`RULE_AUDIT.md`** for the full per-rule
+record (implementation summary, trusted fields, false-positive/negative
+risk, test coverage, and an explicit audit result for all 20 rules).
+This is an internal-consistency and test-completeness audit, not an
+ASME Y14.5 conformance audit: it contains no clause numbers, no
+standard wording, and no compliance claim beyond what the rule's own
+code and tests demonstrate. Where a rule's correctness genuinely
+depends on the literal standard text, `RULE_AUDIT.md` says so
+explicitly ("requires licensed-standard verification") instead of
+guessing.
+
+Outcome: 17 of 20 rules were found internally consistent with no
+changes needed. Three rules in the `related_dimension_ids` family
+(`angularity-related-dimension-must-be-angular`,
+`position-related-dimension-must-be-basic`,
+`related-dimension-must-not-be-reference`) were missing a test their
+three sibling rules already had — proving that a dimension id
+resolves only against the *owning* feature, not a same-named dimension
+declared on a different one — and now have it. One rule
+(`form-mmc-requires-feature-of-size`) gained a test making its existing
+circularity/cylindricity scope boundary explicit rather than implicit.
+No logic bugs and no title/behavior mismatches were found in any rule,
+so no rule's `check()` logic or `explanation` text changed, and no
+bundled example's output changed.
+
+Two cross-cutting catalog gaps were surfaced (not defects in any single
+rule, so not attributed to one): no rule requires a runout FCF to carry
+a datum reference (unlike position/orientation, which both have their
+own such rule), and no rule checks for an inappropriate MMC/LMC
+modifier on circularity/cylindricity (only straightness/flatness are
+covered by `form-mmc-requires-feature-of-size`, by that rule's own
+documented design). Both are recorded in `RULE_AUDIT.md`'s
+cross-cutting findings as candidates for a future, evidence-driven rule
+addition — not added here, since this sprint's scope was auditing what
+exists, not growing the catalog.
+
 ## Ingest layer
 
 `gdt_coach.ingest` is a thin translation layer: it turns a source

@@ -138,7 +138,7 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Testing
 
-- 486 tests, 99% line coverage, run on every push via CI
+- 493 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -285,10 +285,36 @@ the old hand-maintained table, and documented per-rule limitations.
   why filter-parsing order deliberately differs between single-file
   and batch mode
 
+### Rule audit (Sprint 17)
+
+- A formal internal-consistency and assumption audit of all 20
+  registered rules, using `ALL_RULE_CLASSES` as the sole source of
+  truth — see **`RULE_AUDIT.md`** for the full per-rule record
+- Not an ASME Y14.5 conformance audit: no clause numbers, no standard
+  wording, no compliance claim beyond what each rule's own code and
+  tests demonstrate; two rules' scope boundaries are explicitly flagged
+  as requiring licensed-standard verification rather than guessed at
+- Result: 17 of 20 rules internally consistent with no changes needed;
+  3 rules gained a test proving `related_dimension_ids` resolves only
+  against the *owning* feature (a gap their 3 sibling rules didn't
+  have); 1 rule gained a test making an existing scope boundary
+  explicit; 0 logic bugs, 0 title/behavior mismatches found — no rule's
+  `check()` logic or `explanation` changed, no bundled example's output
+  changed
+- Two catalog-level (not single-rule) gaps surfaced and recorded for
+  future consideration, not acted on this sprint: no rule requires a
+  runout FCF to carry a datum reference, and no rule checks for an
+  inappropriate material-condition modifier on circularity/cylindricity
+- See `ARCHITECTURE.md#rule-audit-sprint-17` for the methodology
+  summary and cross-cutting architectural findings
+
 ## Planned
 
 - More GD&T rules: additional orientation/form checks, profile,
-  tolerance-value sanity checks
+  tolerance-value sanity checks — including the two catalog gaps the
+  Sprint 17 rule audit surfaced (`RULE_AUDIT.md`): a runout-requires-datum-reference
+  rule, and a check for an inappropriate material-condition modifier on
+  circularity/cylindricity
 - A composite/multi-segment `FeatureControlFrame` representation
   (larger model change) to unlock composite-tolerancing rules
 - HTML report output for `gdt-coach check` (text, JSON, and Markdown

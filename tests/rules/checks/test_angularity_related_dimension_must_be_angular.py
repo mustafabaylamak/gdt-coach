@@ -1,6 +1,6 @@
 """PASS/FAIL tests for AngularityRelatedDimensionMustBeAngularRule."""
 
-from gdt_coach.models import Drawing
+from gdt_coach.models import Drawing, Feature, FeatureType
 from gdt_coach.models.enums import DimensionType, GeometricCharacteristic, Unit
 from gdt_coach.rules.checks.angularity_related_dimension_must_be_angular import (
     AngularityRelatedDimensionMustBeAngularRule,
@@ -56,6 +56,31 @@ def test_pass_empty_drawing() -> None:
     findings = AngularityRelatedDimensionMustBeAngularRule().check(
         Drawing(id="dwg-empty", title="Empty")
     )
+
+    assert findings == []
+
+
+def test_pass_related_id_defined_only_on_another_feature_is_not_resolved() -> None:
+    # dim-shared is angular, but declared on feat-other, not feat-1 --
+    # related_dimension_ids resolves only against the owning feature's own
+    # dimensions, so this id is unresolved from feat-1's FCF's point of
+    # view, not a match.
+    fcf = make_fcf(
+        characteristic=GeometricCharacteristic.ANGULARITY, related_dimension_ids=["dim-shared"]
+    )
+    feature_1 = Feature(id="feat-1", feature_type=FeatureType.HOLE, feature_control_frames=[fcf])
+    feature_other = Feature(
+        id="feat-other",
+        feature_type=FeatureType.HOLE,
+        dimensions=[
+            make_dimension(
+                dimension_id="dim-shared", dimension_type=DimensionType.ANGULAR, unit=Unit.DEGREE
+            )
+        ],
+    )
+    drawing = Drawing(id="dwg-1", title="Test drawing", features=[feature_1, feature_other])
+
+    findings = AngularityRelatedDimensionMustBeAngularRule().check(drawing)
 
     assert findings == []
 

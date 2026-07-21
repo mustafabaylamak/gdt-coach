@@ -1,6 +1,6 @@
 """PASS/FAIL tests for RelatedDimensionMustNotBeReferenceRule."""
 
-from gdt_coach.models import Drawing
+from gdt_coach.models import Drawing, Feature, FeatureType
 from gdt_coach.models.enums import GeometricCharacteristic
 from gdt_coach.rules.checks.related_dimension_must_not_be_reference import (
     RelatedDimensionMustNotBeReferenceRule,
@@ -42,6 +42,27 @@ def test_pass_empty_drawing() -> None:
     findings = RelatedDimensionMustNotBeReferenceRule().check(
         Drawing(id="dwg-empty", title="Empty")
     )
+
+    assert findings == []
+
+
+def test_pass_related_id_defined_only_on_another_feature_is_not_resolved() -> None:
+    # dim-shared is a reference dimension, but declared on feat-other, not
+    # feat-1 -- related_dimension_ids resolves only against the owning
+    # feature's own dimensions, so this id is unresolved from feat-1's
+    # FCF's point of view, not a match.
+    fcf = make_fcf(
+        characteristic=GeometricCharacteristic.POSITION, related_dimension_ids=["dim-shared"]
+    )
+    feature_1 = Feature(id="feat-1", feature_type=FeatureType.HOLE, feature_control_frames=[fcf])
+    feature_other = Feature(
+        id="feat-other",
+        feature_type=FeatureType.HOLE,
+        dimensions=[make_dimension(dimension_id="dim-shared", is_reference=True)],
+    )
+    drawing = Drawing(id="dwg-1", title="Test drawing", features=[feature_1, feature_other])
+
+    findings = RelatedDimensionMustNotBeReferenceRule().check(drawing)
 
     assert findings == []
 

@@ -1,6 +1,6 @@
 """PASS/FAIL tests for PositionRelatedDimensionMustBeBasicRule."""
 
-from gdt_coach.models import Drawing
+from gdt_coach.models import Drawing, Feature, FeatureType
 from gdt_coach.models.enums import GeometricCharacteristic
 from gdt_coach.rules.checks.position_related_dimension_must_be_basic import (
     PositionRelatedDimensionMustBeBasicRule,
@@ -55,6 +55,27 @@ def test_pass_empty_drawing() -> None:
     findings = PositionRelatedDimensionMustBeBasicRule().check(
         Drawing(id="dwg-empty", title="Empty")
     )
+
+    assert findings == []
+
+
+def test_pass_related_id_defined_only_on_another_feature_is_not_resolved() -> None:
+    # dim-shared is non-basic, but declared on feat-other, not feat-1 --
+    # related_dimension_ids resolves only against the owning feature's own
+    # dimensions, so this id is unresolved from feat-1's FCF's point of
+    # view, not a match.
+    fcf = make_fcf(
+        characteristic=GeometricCharacteristic.POSITION, related_dimension_ids=["dim-shared"]
+    )
+    feature_1 = Feature(id="feat-1", feature_type=FeatureType.HOLE, feature_control_frames=[fcf])
+    feature_other = Feature(
+        id="feat-other",
+        feature_type=FeatureType.HOLE,
+        dimensions=[make_dimension(dimension_id="dim-shared", tolerance=make_tolerance())],
+    )
+    drawing = Drawing(id="dwg-1", title="Test drawing", features=[feature_1, feature_other])
+
+    findings = PositionRelatedDimensionMustBeBasicRule().check(drawing)
 
     assert findings == []
 

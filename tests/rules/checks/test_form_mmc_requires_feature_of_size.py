@@ -60,6 +60,27 @@ def test_pass_empty_drawing() -> None:
 
 
 @pytest.mark.parametrize(
+    "characteristic", [GeometricCharacteristic.CIRCULARITY, GeometricCharacteristic.CYLINDRICITY]
+)
+@pytest.mark.parametrize("modifier", [MaterialCondition.MMC, MaterialCondition.LMC])
+def test_pass_circularity_or_cylindricity_with_modifier_is_out_of_scope(
+    characteristic: GeometricCharacteristic, modifier: MaterialCondition
+) -> None:
+    """This rule only covers straightness/flatness (see the module
+    docstring) -- circularity/cylindricity with a material condition
+    modifier is not flagged here, regardless of Feature of Size status.
+    See RULE_AUDIT.md for the catalog-wide scope note this documents."""
+    fcf = make_fcf(
+        characteristic=characteristic, tolerance=make_tolerance(material_condition=modifier)
+    )
+    drawing = make_drawing_with_fcf(fcf, feature_of_size=False)
+
+    findings = FormMmcRequiresFeatureOfSizeRule().check(drawing)
+
+    assert findings == []
+
+
+@pytest.mark.parametrize(
     "characteristic", [GeometricCharacteristic.STRAIGHTNESS, GeometricCharacteristic.FLATNESS]
 )
 @pytest.mark.parametrize("modifier", [MaterialCondition.MMC, MaterialCondition.LMC])
