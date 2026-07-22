@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gdt_coach.models import Drawing
 from gdt_coach.models.enums import GeometricCharacteristic
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.finding import Finding
@@ -25,6 +26,13 @@ class ProjectedZoneRequiresPositionRule(Rule):
         "A projected tolerance zone (the height projected above the surface) "
         "is only meaningful for a position tolerance; specifying it on any "
         "other characteristic is invalid."
+    )
+    audit_status = RuleAuditStatus.INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION
+    standard_question_note = (
+        "Whether a projected tolerance zone is ever legitimately applied to "
+        "an orientation characteristic (e.g. certain fastener contexts), "
+        "rather than exclusively to position, has not been confirmed "
+        "against a licensed copy of the standard."
     )
 
     def check(self, drawing: Drawing) -> list[Finding]:

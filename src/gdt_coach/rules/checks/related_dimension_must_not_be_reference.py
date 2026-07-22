@@ -10,6 +10,7 @@ avoid a duplicate/noisy finding for the same underlying problem.
 from __future__ import annotations
 
 from gdt_coach.models import Drawing
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.finding import Finding
@@ -32,6 +33,7 @@ class RelatedDimensionMustNotBeReferenceRule(Rule):
         "or enforced; it cannot be the dimension a feature control frame "
         "relies on to establish or support its tolerance."
     )
+    audit_status = RuleAuditStatus.INTERNALLY_AUDITED
 
     def check(self, drawing: Drawing) -> list[Finding]:
         findings: list[Finding] = []

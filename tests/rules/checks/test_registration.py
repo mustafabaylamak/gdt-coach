@@ -17,11 +17,25 @@ time a rule is added or removed.
 
 from gdt_coach.models import Datum, Drawing, Feature, FeatureType
 from gdt_coach.models.enums import DatumFeatureType, GeometricCharacteristic
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.checks import ALL_RULE_CLASSES
 from gdt_coach.rules.engine import RuleEngine
 from gdt_coach.rules.registry import RuleRegistry, default_registry
 
 from .conftest import make_fcf, make_tolerance
+
+# The exact rule ids RULE_AUDIT.md records as having a known, unresolved
+# standard-scope question (Sprint 17). This set is the single source of
+# truth the tests below check every rule's own declared metadata against
+# -- if a rule's audit_status/standard_question_note ever drifts from
+# this, or this set drifts from RULE_AUDIT.md, a test here fails instead
+# of the two silently disagreeing.
+_EXPECTED_OPEN_STANDARD_QUESTION_RULE_IDS = frozenset(
+    {
+        "form-mmc-requires-feature-of-size",
+        "projected-zone-requires-position",
+    }
+)
 
 
 def _expected_rule_ids() -> set[str]:
@@ -43,6 +57,67 @@ def test_all_rules_have_non_empty_explanations() -> None:
     for rule in default_registry.all():
         assert rule.explanation
         assert rule.title
+
+
+# --- Sprint 18: rule audit-status metadata invariants -----------------------
+
+
+def test_no_registered_rule_remains_not_audited() -> None:
+    """Every one of the 20 currently registered rules has been through the
+    Sprint 17 internal-consistency audit (RULE_AUDIT.md) and explicitly
+    declares a status other than the NOT_AUDITED base-class default."""
+    statuses = {rule_cls().id: rule_cls().audit_status for rule_cls in ALL_RULE_CLASSES}
+
+    not_audited = {
+        rule_id for rule_id, status in statuses.items() if status == RuleAuditStatus.NOT_AUDITED
+    }
+
+    assert not_audited == set()
+
+
+def test_all_current_rules_explicitly_declare_an_audit_status() -> None:
+    """Every rule's own class body sets `audit_status` -- none rely on
+    (accidentally or otherwise) inheriting the base class default, since
+    a future rule that forgets to declare one should read as NOT_AUDITED,
+    not silently pass as consistent with the rest of the catalog."""
+    for rule_cls in ALL_RULE_CLASSES:
+        assert "audit_status" in vars(rule_cls), (
+            f"{rule_cls.__name__} does not explicitly declare audit_status in its own class body"
+        )
+
+
+def test_exactly_the_expected_rules_have_an_open_standard_question() -> None:
+    open_question_ids = {
+        rule_cls().id
+        for rule_cls in ALL_RULE_CLASSES
+        if rule_cls().audit_status == RuleAuditStatus.INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION
+    }
+
+    assert open_question_ids == set(_EXPECTED_OPEN_STANDARD_QUESTION_RULE_IDS)
+
+
+def test_every_open_standard_question_rule_has_a_non_empty_note() -> None:
+    for rule_cls in ALL_RULE_CLASSES:
+        rule = rule_cls()
+        if rule.audit_status == RuleAuditStatus.INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION:
+            assert rule.standard_question_note, (
+                f"{rule.id} is flagged with an open standard question but has "
+                "no standard_question_note"
+            )
+
+
+def test_every_non_open_question_rule_has_no_note() -> None:
+    """A rule that is NOT_AUDITED or INTERNALLY_AUDITED with no open
+    question must not carry a standard_question_note -- a note implies a
+    specific, named open question, so an audit_status/note combination
+    that doesn't agree is a contradiction, not a valid state."""
+    for rule_cls in ALL_RULE_CLASSES:
+        rule = rule_cls()
+        if rule.audit_status != RuleAuditStatus.INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION:
+            assert rule.standard_question_note is None, (
+                f"{rule.id} has audit_status {rule.audit_status!r} but still "
+                f"carries a standard_question_note: {rule.standard_question_note!r}"
+            )
 
 
 def test_rule_engine_runs_all_rules_end_to_end() -> None:

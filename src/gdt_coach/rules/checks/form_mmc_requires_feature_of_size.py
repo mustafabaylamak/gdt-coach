@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from gdt_coach.models import Drawing
 from gdt_coach.models.enums import GeometricCharacteristic, MaterialCondition
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.finding import Finding
@@ -42,6 +43,13 @@ class FormMmcRequiresFeatureOfSizeRule(Rule):
         "median plane of a Feature of Size, they may carry an MMC or LMC "
         "material condition modifier. That modifier is meaningless on a form "
         "tolerance applied to a plain surface (not a Feature of Size)."
+    )
+    audit_status = RuleAuditStatus.INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION
+    standard_question_note = (
+        "Whether circularity/cylindricity are correctly excluded from this "
+        "MMC/LMC-on-Feature-of-Size exception (or whether the standard draws "
+        "that boundary differently) has not been confirmed against a "
+        "licensed copy of the standard."
     )
 
     def check(self, drawing: Drawing) -> list[Finding]:

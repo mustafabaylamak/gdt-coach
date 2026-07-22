@@ -529,8 +529,31 @@ def test_rules_list_json_output_is_valid_and_sorted(capsys: pytest.CaptureFixtur
         "projected-zone-requires-position",
     ]
     for rule in payload["rules"]:
-        assert set(rule) == {"id", "title", "category", "standard", "severity"}
+        # Sprint 18: rules-catalog JSON gained two additive audit fields.
+        assert set(rule) == {
+            "id",
+            "title",
+            "category",
+            "standard",
+            "severity",
+            "audit_status",
+            "has_open_standard_question",
+        }
         assert rule["category"] == "tolerance"
+
+    by_id = {rule["id"]: rule for rule in payload["rules"]}
+    assert (
+        by_id["position-material-condition-requires-feature-of-size"]["audit_status"]
+        == "internally_audited"
+    )
+    assert (
+        by_id["position-material-condition-requires-feature-of-size"]["has_open_standard_question"]
+        is False
+    )
+    assert by_id["projected-zone-requires-position"]["audit_status"] == (
+        "internally_audited_with_open_standard_question"
+    )
+    assert by_id["projected-zone-requires-position"]["has_open_standard_question"] is True
 
 
 def test_rules_list_json_empty_filter_result(capsys: pytest.CaptureFixture[str]) -> None:
@@ -563,8 +586,22 @@ def test_rules_show_json_output(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["severity"] == "error"
     assert payload["category"] == "feature_control_frame"
     assert payload["standard"] == "asme_y14.5_2018"
-    assert set(payload) == {"id", "title", "category", "standard", "severity", "explanation"}
+    # Sprint 18: rules-show JSON gained three additive audit fields.
+    assert set(payload) == {
+        "id",
+        "title",
+        "category",
+        "standard",
+        "severity",
+        "explanation",
+        "audit_status",
+        "has_open_standard_question",
+        "standard_question_note",
+    }
     assert len(payload["explanation"]) > 0
+    assert payload["audit_status"] == "internally_audited"
+    assert payload["has_open_standard_question"] is False
+    assert payload["standard_question_note"] is None
 
 
 def test_rules_show_unknown_rule_id_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
@@ -585,6 +622,237 @@ def test_rules_show_unknown_rule_id_with_json_flag_still_plain_text_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no rule registered with id" in captured.err
+
+
+# --- Sprint 18: rule audit-status metadata in the CLI -----------------------
+
+_OPEN_QUESTION_RULE_ID = "form-mmc-requires-feature-of-size"
+_UNFLAGGED_RULE_ID = "runout-always-rfs"
+
+
+def test_rules_list_text_marks_open_standard_question_rule(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "list"])
+
+    assert exit_code == 0
+    lines_by_id = {
+        line.split()[0]: line for line in capsys.readouterr().out.splitlines() if "  [" in line
+    }
+    flagged_line = lines_by_id[_OPEN_QUESTION_RULE_ID]
+    assert "audit=internally_audited_with_open_standard_question" in flagged_line
+    assert "[OPEN STANDARD QUESTION]" in flagged_line
+
+
+def test_rules_list_text_does_not_mark_internally_audited_rule(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "list"])
+
+    assert exit_code == 0
+    lines_by_id = {
+        line.split()[0]: line for line in capsys.readouterr().out.splitlines() if "  [" in line
+    }
+    unflagged_line = lines_by_id[_UNFLAGGED_RULE_ID]
+    assert "audit=internally_audited" in unflagged_line
+    assert "OPEN STANDARD QUESTION" not in unflagged_line
+
+
+def test_rules_list_text_never_prints_the_full_standard_question_note(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "list"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "has not been confirmed against a licensed copy" not in out
+
+
+def test_rules_list_json_flagged_and_unflagged_entries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "list", "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_id = {rule["id"]: rule for rule in payload["rules"]}
+
+    flagged = by_id[_OPEN_QUESTION_RULE_ID]
+    assert flagged["audit_status"] == "internally_audited_with_open_standard_question"
+    assert flagged["has_open_standard_question"] is True
+    assert "standard_question_note" not in flagged  # the long note is show-only
+
+    unflagged = by_id[_UNFLAGGED_RULE_ID]
+    assert unflagged["audit_status"] == "internally_audited"
+    assert unflagged["has_open_standard_question"] is False
+
+
+def test_rules_show_text_flagged_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", _OPEN_QUESTION_RULE_ID])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "audit status: internally_audited_with_open_standard_question" in out
+    assert "open standard question: yes" in out
+    assert "standard question note: " in out
+    assert "has not been confirmed against a licensed copy of the standard" in out
+    assert "not an ASME Y14.5 certification" in out
+
+
+def test_rules_show_text_unflagged_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", _UNFLAGGED_RULE_ID])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "audit status: internally_audited" in out
+    assert "open standard question: no" in out
+    assert "standard question note:" not in out
+    assert "not an ASME Y14.5 certification" in out
+
+
+def test_rules_show_json_flagged_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", _OPEN_QUESTION_RULE_ID, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audit_status"] == "internally_audited_with_open_standard_question"
+    assert payload["has_open_standard_question"] is True
+    assert payload["standard_question_note"]
+    assert "licensed copy of the standard" in payload["standard_question_note"]
+
+
+def test_rules_show_json_unflagged_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["rules", "show", _UNFLAGGED_RULE_ID, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audit_status"] == "internally_audited"
+    assert payload["has_open_standard_question"] is False
+    assert payload["standard_question_note"] is None
+
+
+def test_rules_show_unknown_rule_behavior_is_unaffected_by_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "show", "bogus-rule-id"])
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "audit" not in captured.err
+    assert "no rule registered with id 'bogus-rule-id'" in captured.err
+
+
+def test_rules_show_never_uses_forbidden_certification_wording(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No rule's text or JSON `show` output may claim ASME verification,
+    compliance, certification, or approval -- internal audit status is
+    not any of those, and none of this wording should ever appear."""
+    forbidden_phrases = ("asme verified", "asme compliant", "certified", "standard approved")
+
+    for rule_cls in ALL_RULE_CLASSES:
+        rule_id = rule_cls().id
+        main(["rules", "show", rule_id])
+        text_out = capsys.readouterr().out.lower()
+        main(["rules", "show", rule_id, "--json"])
+        json_out = capsys.readouterr().out.lower()
+
+        for phrase in forbidden_phrases:
+            assert phrase not in text_out, f"{rule_id} text output contains {phrase!r}"
+            assert phrase not in json_out, f"{rule_id} JSON output contains {phrase!r}"
+
+
+def test_rules_list_category_filter_preserves_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "list", "--category", "tolerance", "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_id = {rule["id"]: rule for rule in payload["rules"]}
+    assert by_id["projected-zone-requires-position"]["has_open_standard_question"] is True
+
+
+def test_rules_list_standard_filter_preserves_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["rules", "list", "--standard", "asme_y14.5_2018", "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_id = {rule["id"]: rule for rule in payload["rules"]}
+    assert by_id[_OPEN_QUESTION_RULE_ID]["has_open_standard_question"] is True
+    assert by_id[_UNFLAGGED_RULE_ID]["has_open_standard_question"] is False
+
+
+def test_rules_list_text_ordering_unaffected_by_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ids_in_alphabetical_order = sorted(rule_cls().id for rule_cls in ALL_RULE_CLASSES)
+
+    exit_code = main(["rules", "list"])
+
+    assert exit_code == 0
+    listed_ids = [line.split()[0] for line in capsys.readouterr().out.splitlines() if "  [" in line]
+    assert listed_ids == ids_in_alphabetical_order
+
+
+# --- Sprint 18: `check` output must be completely unaffected ----------------
+
+
+def test_check_text_output_unaffected_by_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path)])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "audit" not in out.lower()
+    assert "certification" not in out.lower()
+
+
+def test_check_json_output_unaffected_by_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "valid_position.yaml"
+
+    exit_code = main(["check", str(path), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == {"path", "drawing", "rules_run", "findings", "summary"}
+
+
+def test_check_markdown_output_unaffected_by_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(path), "--markdown"])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert out.startswith("# GD&T Check Report\n")
+    assert "audit" not in out.lower()
+
+
+def test_check_batch_output_unaffected_by_audit_metadata(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    a = _EXAMPLES_DIR / "valid_position.yaml"
+    b = _EXAMPLES_DIR / "invalid_flatness_with_datum.yaml"
+
+    exit_code = main(["check", str(a), str(b), "--json"])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == {"results", "summary"}
+    for result in payload["results"]:
+        assert "audit_status" not in result
+        assert "audit_status" not in result.get("drawing", {})
 
 
 # --- backward compatibility: default text / JSON output unchanged ----------

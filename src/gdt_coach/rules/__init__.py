@@ -9,6 +9,7 @@ and an engine). A new rule is added by defining a
 of the classes in this package need to change.
 """
 
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.engine import RuleEngine
@@ -23,6 +24,7 @@ __all__ = [
     "Finding",
     "InvalidRuleError",
     "Rule",
+    "RuleAuditStatus",
     "RuleCategory",
     "RuleEngine",
     "RuleError",

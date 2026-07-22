@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gdt_coach.models import Drawing
 from gdt_coach.models.enums import GeometricCharacteristic, MaterialCondition
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.finding import Finding
@@ -32,6 +33,7 @@ class RunoutAlwaysRfsRule(Rule):
         "applied, neither to the runout tolerance value nor to any of its datum "
         "references."
     )
+    audit_status = RuleAuditStatus.INTERNALLY_AUDITED
 
     def check(self, drawing: Drawing) -> list[Finding]:
         findings: list[Finding] = []

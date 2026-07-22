@@ -13,6 +13,7 @@ from gdt_coach import __version__
 from gdt_coach.ingest import ALL_INPUT_ADAPTERS, AdapterRegistry
 from gdt_coach.ingest.exceptions import IngestError, UnsupportedFormatError
 from gdt_coach.models import Drawing
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.checks import ALL_RULE_CLASSES
@@ -230,18 +231,27 @@ def _matching_rules(
     return sorted(rules, key=lambda rule: rule.id)
 
 
-def _rule_summary(rule: Rule) -> dict[str, str]:
+def _has_open_standard_question(rule: Rule) -> bool:
+    return rule.audit_status == RuleAuditStatus.INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION
+
+
+def _rule_summary(rule: Rule) -> dict[str, str | bool]:
     return {
         "id": rule.id,
         "title": rule.title,
         "category": rule.category.value,
         "standard": rule.standard.value,
         "severity": rule.severity.value,
+        "audit_status": rule.audit_status.value,
+        "has_open_standard_question": _has_open_standard_question(rule),
     }
 
 
-def _rule_detail(rule: Rule) -> dict[str, str]:
-    return {**_rule_summary(rule), "explanation": rule.explanation}
+def _rule_detail(rule: Rule) -> dict[str, str | bool | None]:
+    detail: dict[str, str | bool | None] = dict(_rule_summary(rule))
+    detail["explanation"] = rule.explanation
+    detail["standard_question_note"] = rule.standard_question_note
+    return detail
 
 
 def _rules_list(
@@ -273,9 +283,13 @@ def _print_rules_list(rules: list[Rule]) -> None:
         return
 
     for rule in rules:
+        open_question_marker = (
+            "  [OPEN STANDARD QUESTION]" if _has_open_standard_question(rule) else ""
+        )
         print(
             f"{rule.id}  [{rule.severity.value.upper()}]  "
-            f"category={rule.category.value} standard={rule.standard.value}"
+            f"category={rule.category.value} standard={rule.standard.value} "
+            f"audit={rule.audit_status.value}{open_question_marker}"
         )
         print(f"  {rule.title}")
         print()
@@ -304,8 +318,19 @@ def _print_rule_detail(rule: Rule) -> None:
     print(f"category: {rule.category.value}")
     print(f"standard: {rule.standard.value}")
     print(f"severity: {rule.severity.value.upper()}")
+    print(f"audit status: {rule.audit_status.value}")
+    print(f"open standard question: {'yes' if _has_open_standard_question(rule) else 'no'}")
+    if rule.standard_question_note:
+        print(f"standard question note: {rule.standard_question_note}")
     print()
     print(rule.explanation)
+    print()
+    print(
+        "Internal audit status reflects gdt-coach's own review of this "
+        "rule's implementation (see RULE_AUDIT.md). It is not an ASME "
+        "Y14.5 certification and does not by itself verify conformance "
+        "with the standard."
+    )
 
 
 # --- Per-file result model (Sprint 16) --------------------------------------

@@ -420,6 +420,51 @@ cross-cutting findings as candidates for a future, evidence-driven rule
 addition — not added here, since this sprint's scope was auditing what
 exists, not growing the catalog.
 
+### Rule audit metadata (Sprint 18)
+
+`RULE_AUDIT.md`'s findings are now also exposed as code-level metadata
+on every `Rule`, surfaced through the existing `rules list`/`rules
+show` CLI (text and `--json`) rather than a new subcommand or a second
+machine-readable document. Two `ClassVar` fields, declared alongside a
+rule's existing `id`/`title`/`severity`/etc:
+
+- `audit_status: RuleAuditStatus` — `NOT_AUDITED` (the base class
+  default — deliberately *not* an audited-sounding value, so a rule
+  that forgets to declare this reads as unreviewed, not consistent),
+  `INTERNALLY_AUDITED`, or
+  `INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION`. All 20 current
+  rules explicitly declare one of the latter two; 18 are
+  `INTERNALLY_AUDITED`, 2 are
+  `INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION`
+  (`form-mmc-requires-feature-of-size`,
+  `projected-zone-requires-position` — the same two rows
+  `RULE_AUDIT.md` already flagged in Sprint 17).
+- `standard_question_note: str | None` — a short, paraphrased
+  description of the specific open question, set only alongside
+  `INTERNALLY_AUDITED_WITH_OPEN_STANDARD_QUESTION`. No clause numbers,
+  no quoted standard text, no field named anything like
+  "requires-licensed-verification": *every* rule would need that
+  before a literal ASME conformance claim could be made, so a field
+  implying only two rules do would itself be a misleading claim. What
+  actually distinguishes these two rules is a specific, named,
+  currently-unresolved scope question — that's what the field and its
+  name mean, nothing broader.
+
+`RuleRegistry._validate_metadata` was **not** extended to require
+these fields — `NOT_AUDITED` is a legitimate state for a rule that
+hasn't been reviewed yet, not a missing-metadata error. Instead,
+`tests/rules/checks/test_registration.py` asserts the *current* 20
+rules' distribution directly against `RULE_AUDIT.md`'s own findings (a
+fixed set of the two expected rule ids), so any future drift between
+this metadata and the document — in either direction — fails a test
+instead of silently diverging, the same discipline `ALL_RULE_CLASSES`
+already applies to rule registration itself.
+
+`rules show`'s text output states on every rule, flagged or not, that
+this status is gdt-coach's own review, not an ASME Y14.5 certification.
+No `check` output (text, JSON, Markdown, or batch) changed — this is
+additive to the rule-catalog surface only.
+
 ## Ingest layer
 
 `gdt_coach.ingest` is a thin translation layer: it turns a source

@@ -288,10 +288,23 @@ gdt-coach rules show position-requires-feature-of-size      # id, title, categor
 ```
 
 Both accept `--json`. `rules list --json` is `{"rules": [{"id", "title",
-"category", "standard", "severity"}, ...]}`; `rules show --json` adds
-`"explanation"`. Exit codes: `0` on a successful list or show
-(including an empty filter result — that's not an error), `2` for an
-invalid `--category`/`--standard` value or an unknown rule id.
+"category", "standard", "severity", "audit_status",
+"has_open_standard_question"}, ...]}`; `rules show --json` adds
+`"explanation"` and `"standard_question_note"`. Exit codes: `0` on a
+successful list or show (including an empty filter result — that's not
+an error), `2` for an invalid `--category`/`--standard` value or an
+unknown rule id.
+
+`audit_status` (Sprint 18) is one of `not_audited`, `internally_audited`,
+or `internally_audited_with_open_standard_question` — gdt-coach's own
+review of a rule's implementation against its stated title/explanation/
+tests (see [RULE_AUDIT.md](RULE_AUDIT.md)), never an ASME Y14.5
+certification. `has_open_standard_question` is `true` for exactly the
+rules whose scope boundary has a specific, named question that couldn't
+be confirmed without a licensed copy of the standard;
+`standard_question_note` (`rules show` only) is a short, paraphrased
+description of that question, present only for those rules. `rules
+show`'s text output states this distinction explicitly.
 
 ## Using it as a library
 

@@ -22,6 +22,43 @@ audit means: the rule is internally consistent, its assumptions are
 documented, and its tests cover meaningful scenarios — it does not mean
 the rule has been checked against the literal standard text.
 
+## Machine-readable audit-status metadata (Sprint 18)
+
+The findings above are now also exposed directly through the CLI —
+`gdt-coach rules list`/`rules list --json` and `rules show <id>`/`rules
+show <id> --json` — as a concise, code-level summary. **This document
+remains the detailed, human-readable audit record**; the CLI fields are
+a compact pointer back to it, not a replacement for it.
+
+Two fields carry this, declared on every `Rule` (see `RuleAuditStatus`
+in `gdt_coach.rules.audit_status`):
+
+- **`audit_status`** — one of `not_audited`, `internally_audited`, or
+  `internally_audited_with_open_standard_question`. All 20 currently
+  registered rules are `internally_audited` or better; none is
+  `not_audited` (that value exists for rules that haven't been through
+  this review yet — the base class defaults to it deliberately, so a
+  future rule that forgets to declare its status reads as unaudited,
+  never as silently consistent).
+- **`standard_question_note`** — a short, paraphrased description of a
+  specific unresolved standard-scope question, present only on the two
+  `internally_audited_with_open_standard_question` rules
+  (`form-mmc-requires-feature-of-size`,
+  `projected-zone-requires-position` — the same two rows flagged
+  "requires licensed-standard verification" above). No clause numbers
+  or quoted standard text; only a plain-language description of the
+  boundary in question.
+
+Distribution across the 20 rules: **18 `internally_audited`, 2
+`internally_audited_with_open_standard_question`, 0 `not_audited`.**
+
+**None of this is an ASME Y14.5 certification, and no wording in the
+CLI output claims otherwise.** `audit_status` records whether *this
+project* has reviewed a rule's own implementation against its own
+stated intent — it says nothing about conformance to the literal
+standard text. `rules show`'s text output states this explicitly on
+every rule, flagged or not.
+
 ## Authoritative rule set
 
 The audit's scope is `gdt_coach.rules.checks.ALL_RULE_CLASSES` — the

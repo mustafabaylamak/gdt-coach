@@ -3,6 +3,7 @@
 import pytest
 
 from gdt_coach.models import Drawing
+from gdt_coach.rules.audit_status import RuleAuditStatus
 from gdt_coach.rules.base import Rule
 from gdt_coach.rules.category import RuleCategory
 from gdt_coach.rules.finding import Finding
@@ -63,6 +64,33 @@ def test_concrete_rule_check_runs_against_a_drawing(empty_drawing: Drawing) -> N
     assert len(findings) == 1
     assert findings[0].rule_id == "always-finds"
     assert empty_drawing.id in findings[0].message
+
+
+def test_rule_base_class_audit_status_default_is_not_audited() -> None:
+    assert Rule.audit_status == RuleAuditStatus.NOT_AUDITED
+    assert Rule.standard_question_note is None
+
+
+def test_concrete_rule_not_declaring_audit_status_stays_not_audited() -> None:
+    """A rule that says nothing about its audit status must read as
+    NOT_AUDITED -- it must never silently inherit an audited-sounding
+    value just by existing."""
+
+    class UndeclaredAuditStatusRule(Rule):
+        id = "undeclared-audit-status"
+        title = "Undeclared audit status"
+        severity = Severity.INFO
+        standard = Standard.GENERAL
+        category = RuleCategory.GENERAL
+        explanation = "Deliberately does not declare audit_status, for testing."
+
+        def check(self, drawing: Drawing) -> list[Finding]:
+            return []
+
+    rule = UndeclaredAuditStatusRule()
+
+    assert rule.audit_status == RuleAuditStatus.NOT_AUDITED
+    assert rule.standard_question_note is None
 
 
 def test_subclass_missing_check_cannot_be_instantiated() -> None:

@@ -138,7 +138,7 @@ the old hand-maintained table, and documented per-rule limitations.
 
 ### Testing
 
-- 493 tests, 99% line coverage, run on every push via CI
+- 517 tests, 99% line coverage, run on every push via CI
 - PASS/FAIL coverage for every rule, including documented limitations
   (e.g. a rule verified against data assembled via `model_construct()`
   to exercise a branch that normal validation makes otherwise
@@ -307,6 +307,42 @@ the old hand-maintained table, and documented per-rule limitations.
   inappropriate material-condition modifier on circularity/cylindricity
 - See `ARCHITECTURE.md#rule-audit-sprint-17` for the methodology
   summary and cross-cutting architectural findings
+
+### Rule audit metadata (Sprint 18)
+
+- `RULE_AUDIT.md`'s findings are now exposed as code-level metadata on
+  every `Rule` (`audit_status`, `standard_question_note`), surfaced
+  through the existing `rules list`/`rules show` CLI in both text and
+  `--json` — no new subcommand, no second machine-readable document
+- `audit_status` is one of `not_audited` (the base-class default —
+  never inherited silently as "audited"), `internally_audited`, or
+  `internally_audited_with_open_standard_question`; all 20 current
+  rules explicitly declare one: 18 `internally_audited`, 2
+  `internally_audited_with_open_standard_question`
+  (`form-mmc-requires-feature-of-size`,
+  `projected-zone-requires-position` — the same two rows Sprint 17
+  flagged), 0 `not_audited`
+- Deliberately not named anything like
+  "requires-licensed-standard-verification": every rule would need
+  that before a literal ASME conformance claim could be made, so a
+  field implying only two do would itself overclaim. The field instead
+  names the specific thing that's actually true of those two rules — a
+  named, open scope question — via `standard_question_note`, a short
+  paraphrase with no clause numbers or quoted standard text
+- A registry-level test (not `RuleRegistry._validate_metadata`, since
+  `not_audited` is a legitimate state, not missing metadata) checks the
+  current 20 rules' distribution directly against `RULE_AUDIT.md`'s own
+  findings, so any future drift between the two fails a test instead of
+  silently diverging
+- `rules show` text output states on every rule that this status is
+  gdt-coach's own internal review, not an ASME Y14.5 certification; no
+  wording implying otherwise (`ASME verified`, `certified`, etc.)
+  appears anywhere in either command's output
+- Purely additive to the rule-catalog surface: no change to `check`
+  output (text, JSON, Markdown, or batch), `Finding`, `RuleEngine`, any
+  domain model, or any rule's `check()` logic
+- See `ARCHITECTURE.md#rule-audit-metadata-sprint-18` for the full
+  design
 
 ## Planned
 
